@@ -3,7 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { getCompleteUrlV1 } from "../utils";
 
 const LoginPage = () => {
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(() => {
+    return localStorage.getItem("remembered_login_input") || "";
+  });
+  const [rememberMe, setRememberMe] = useState(() => {
+    return localStorage.getItem("remember_me") === "true";
+  });
   const [otp, setOtp] = useState("");
   const [isOtpSent, setIsOtpSent] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -54,6 +59,13 @@ const LoginPage = () => {
                 user: data.user,
               })
             );
+            if (rememberMe) {
+              localStorage.setItem("remembered_login_input", input);
+              localStorage.setItem("remember_me", "true");
+            } else {
+              localStorage.removeItem("remembered_login_input");
+              localStorage.removeItem("remember_me");
+            }
             navigate("/dashboard");
           } else {
             setError(data.message || "Login Failed. Please check your OTP.");
@@ -165,6 +177,8 @@ const LoginPage = () => {
               <label className="flex items-center gap-2 text-slate-600 cursor-pointer select-none">
                 <input
                   type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
                   className="w-4 h-4 rounded border-slate-300 accent-[#3644d6]"
                 />
                 Remember me

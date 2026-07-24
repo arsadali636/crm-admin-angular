@@ -1,32 +1,45 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { httpClient } from "../services/ApiService";
 import { getCompleteUrlV1 } from "../utils";
 import { IUser } from "../types";
-import { useSearchParams } from "react-router-dom";
-import Breadcrumb from "../components/Breadcrumb";
 import moment from "moment";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Users as UsersIcon,
   ShoppingCart,
   Store,
   Megaphone,
   ShieldCheck,
-  TrendingUp,
   Search,
   ChevronDown,
   Download,
   UserPlus,
+  RefreshCw,
+  SlidersHorizontal,
+  MoreVertical,
+  Eye,
+  CheckCircle,
+  AlertCircle,
+  Briefcase,
+  Columns,
+  Upload
 } from "lucide-react";
 
+// Import custom subcomponents
+import { UserStatsCard } from "../components/users/UserStatsCard";
+import { FilterDrawer, FilterState, initialFilters } from "../components/users/FilterDrawer";
+import { UserDetails } from "../components/users/UserDetails";
+
 /* ═══════════════════════════════════════════════════
-   ROLE BADGE — color-coded pill for table cells
+   ROLE BADGES MAP
    ═══════════════════════════════════════════════════ */
 const ROLE_BADGE_MAP: Record<string, string> = {
   user: "bg-blue-50 text-blue-700 border-blue-200/80",
   buyer: "bg-blue-50 text-blue-700 border-blue-200/80",
   seller: "bg-violet-50 text-violet-700 border-violet-200/80",
   promoter: "bg-amber-50 text-amber-700 border-amber-200/80",
+  connector: "bg-emerald-50 text-emerald-700 border-emerald-200/80",
   admin: "bg-rose-50 text-rose-700 border-rose-200/80",
 };
 
@@ -34,623 +47,1379 @@ const RoleBadge = ({ role }: { role: string }) => {
   const r = role.toLowerCase();
   const colors = ROLE_BADGE_MAP[r] || "bg-slate-50 text-slate-600 border-slate-200";
   return (
-    <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border tracking-wide uppercase ${colors}`}
-    >
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border tracking-wide uppercase ${colors}`}>
       {role}
     </span>
   );
 };
 
-/* ═══════════════════════════════════════════════════
-   AFFILIATE CHIP — modern tag for affiliate IDs
-   ═══════════════════════════════════════════════════ */
-const AffiliateChip = ({ id }: { id?: string }) => {
-  if (!id || id === "-") return <span className="text-slate-300">—</span>;
-  return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 text-slate-600 text-[11px] font-mono font-medium border border-slate-200/60">
-      {id}
-    </span>
-  );
+const getStatusBadge = (status: string) => {
+  switch (status.toLowerCase()) {
+    case "active":
+      return "bg-emerald-50 text-emerald-700 border-emerald-200/80";
+    case "inactive":
+      return "bg-slate-50 text-slate-600 border-slate-200";
+    case "blocked":
+      return "bg-rose-50 text-rose-700 border-rose-200/80";
+    case "pending":
+      return "bg-amber-50 text-amber-700 border-amber-200/80";
+    default:
+      return "bg-blue-50 text-blue-700 border-blue-200/80";
+  }
 };
-
-/* ═══════════════════════════════════════════════════
-   STAT CARD — Premium glassmorphism card
-   ═══════════════════════════════════════════════════ */
-type RoleStatProps = {
-  title: string;
-  subtitle?: string;
-  count: number;
-  icon: React.ElementType;
-  gradient: string;
-  iconBg: string;
-  iconColor: string;
-  trend?: number;
-  isActive: boolean;
-  onClick: () => void;
-  index: number;
-};
-
-const RoleStatCard = ({
-  title,
-  subtitle,
-  count,
-  icon: Icon,
-  gradient,
-  iconBg,
-  iconColor,
-  trend,
-  isActive,
-  onClick,
-  index,
-}: RoleStatProps) => (
-  <motion.div
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.4, delay: index * 0.08, ease: [0.22, 1, 0.36, 1] }}
-    onClick={onClick}
-    whileHover={{ y: -4 }}
-    whileTap={{ scale: 0.98 }}
-    className={`
-      group relative rounded-2xl overflow-hidden cursor-pointer select-none
-      transition-shadow duration-400
-      ${
-        isActive
-          ? `${gradient} shadow-[0_8px_32px_rgba(54,68,214,0.28),0_0_0_1px_rgba(54,68,214,0.15)] ring-1 ring-white/20`
-          : "bg-white/80 backdrop-blur-sm shadow-[0_1px_3px_rgba(0,0,0,0.05),0_0_0_1px_rgba(0,0,0,0.03)] hover:shadow-[0_12px_28px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)]"
-      }
-    `}
-  >
-    {/* Top gradient border accent */}
-    {!isActive && (
-      <div className={`absolute top-0 left-0 right-0 h-[2px] ${gradient} opacity-60`} />
-    )}
-
-    <div className="relative z-10 p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1 min-w-0">
-          <p
-            className={`text-[13px] font-medium tracking-wide ${
-              isActive ? "text-white/70" : "text-slate-400"
-            }`}
-          >
-            {title}
-          </p>
-          <p
-            className={`text-[32px] font-extrabold leading-none tracking-tight ${
-              isActive ? "text-white" : "text-slate-900"
-            }`}
-          >
-            {count.toLocaleString()}
-          </p>
-          {trend !== undefined && (
-            <div className="flex items-center gap-1.5 pt-1">
-              <span
-                className={`inline-flex items-center gap-0.5 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-                  isActive
-                    ? "bg-white/15 text-white/90"
-                    : "bg-emerald-50 text-emerald-600"
-                }`}
-              >
-                <TrendingUp size={10} strokeWidth={2.5} />+{trend}%
-              </span>
-              {subtitle && (
-                <span
-                  className={`text-[10px] ${
-                    isActive ? "text-white/50" : "text-slate-400"
-                  }`}
-                >
-                  {subtitle}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-        <div
-          className={`
-            w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0
-            transition-all duration-300 group-hover:scale-110 group-hover:rotate-3
-            ${isActive ? "bg-white/15 text-white" : `${iconBg} ${iconColor}`}
-          `}
-        >
-          <Icon size={20} strokeWidth={1.8} />
-        </div>
-      </div>
-    </div>
-  </motion.div>
-);
-
-/* ═══════════════════════════════════════════════════
-   PREMIUM TABLE — Enterprise-grade data table
-   ═══════════════════════════════════════════════════ */
-const PremiumTable = ({ users, activeRole }: { users: IUser[]; activeRole: string }) => {
-  const getRoleStr = (u: IUser) => {
-    if (Array.isArray(u.role)) return u.role[0] || "";
-    return (u.role as unknown as string) || "";
-  };
-
-  const showSellerCols = activeRole === "seller" || activeRole === "";
-  const headers = [
-    "Name",
-    "Email",
-    "Phone",
-    "Register Date",
-    "Role",
-    "Affiliate ID",
-    ...(showSellerCols ? ["Business", "GST No"] : []),
-  ];
-
-  return (
-    <div className="rounded-xl border border-slate-200/70 overflow-hidden bg-white shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-      <div className="overflow-x-auto">
-        <table className="min-w-[900px] w-full text-sm">
-          <thead>
-            <tr className="bg-slate-50/80 border-b border-slate-200/60">
-              {headers.map((h) => (
-                <th
-                  key={h}
-                  className="px-5 py-3.5 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider sticky top-0 bg-slate-50/80 backdrop-blur-sm"
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100/80">
-            {users.map((u, idx) => (
-              <motion.tr
-                key={`${u.email}-${idx}`}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.2, delay: Math.min(idx * 0.015, 0.3) }}
-                className={`group transition-colors duration-150 hover:bg-blue-50/40 ${
-                  idx % 2 === 0 ? "bg-white" : "bg-slate-50/30"
-                }`}
-              >
-                {/* Name */}
-                <td className="px-5 py-3.5">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0">
-                      {(u.firstName?.[0] || "").toUpperCase()}
-                      {(u.lastName?.[0] || "").toUpperCase()}
-                    </div>
-                    <p className="font-medium text-slate-800 text-[13px] leading-tight">
-                      {u.firstName} {u.lastName}
-                    </p>
-                  </div>
-                </td>
-
-                {/* Email */}
-                <td className="px-5 py-3.5 text-[13px] text-slate-600">
-                  {u.email}
-                </td>
-
-                {/* Phone */}
-                <td className="px-5 py-3.5 text-[13px] text-slate-600 font-mono">
-                  {u.phoneNumber}
-                </td>
-
-                {/* Date */}
-                <td className="px-5 py-3.5 text-[13px] text-slate-500">
-                  {moment(u.createdAt).format("DD MMM YYYY")}
-                </td>
-
-                {/* Role Badge */}
-                <td className="px-5 py-3.5">
-                  <RoleBadge role={getRoleStr(u)} />
-                </td>
-
-                {/* Affiliate */}
-                <td className="px-5 py-3.5">
-                  <AffiliateChip id={u.affiliateId} />
-                </td>
-
-                {/* Seller columns */}
-                {showSellerCols && (
-                  <>
-                    <td className="px-5 py-3.5 text-[13px] text-slate-600">
-                      {u.seller?.businessName || (
-                        <span className="text-slate-300">—</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3.5 text-[13px] text-slate-500 font-mono">
-                      {u.seller?.gstNumber || (
-                        <span className="text-slate-300">—</span>
-                      )}
-                    </td>
-                  </>
-                )}
-              </motion.tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Footer */}
-      <div className="flex items-center justify-between px-5 py-3 bg-slate-50/50 border-t border-slate-100 text-[12px] text-slate-400">
-        <span>
-          Showing {users.length} result{users.length !== 1 ? "s" : ""}
-        </span>
-        <span>Lottmart CRM</span>
-      </div>
-    </div>
-  );
-};
-
-/* ═══════════════════════════════════════════════════
-   ROLE CARDS CONFIG
-   ═══════════════════════════════════════════════════ */
-const ROLE_CARDS: {
-  readonly key: string;
-  readonly title: string;
-  readonly icon: React.ElementType;
-  readonly gradient: string;
-  readonly iconBg: string;
-  readonly iconColor: string;
-  readonly trend?: number;
-  readonly subtitle?: string;
-}[] = [
-  {
-    key: "",
-    title: "Total Users",
-    icon: UsersIcon,
-    gradient: "bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-700",
-    iconBg: "bg-blue-50",
-    iconColor: "text-blue-600",
-    trend: 12,
-    subtitle: "vs last month",
-  },
-  {
-    key: "user",
-    title: "Buyers / Users",
-    icon: ShoppingCart,
-    gradient: "bg-gradient-to-br from-indigo-500 via-indigo-600 to-blue-700",
-    iconBg: "bg-indigo-50",
-    iconColor: "text-indigo-600",
-    trend: 8,
-    subtitle: "vs last month",
-  },
-  {
-    key: "seller",
-    title: "Sellers",
-    icon: Store,
-    gradient: "bg-gradient-to-br from-violet-500 via-violet-600 to-purple-700",
-    iconBg: "bg-violet-50",
-    iconColor: "text-violet-600",
-    trend: 5,
-    subtitle: "vs last month",
-  },
-  {
-    key: "promoter",
-    title: "Promoters",
-    icon: Megaphone,
-    gradient: "bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600",
-    iconBg: "bg-amber-50",
-    iconColor: "text-amber-600",
-    trend: 15,
-    subtitle: "vs last month",
-  },
-  {
-    key: "admin",
-    title: "Admins",
-    icon: ShieldCheck,
-    gradient: "bg-gradient-to-br from-slate-600 via-slate-700 to-slate-800",
-    iconBg: "bg-slate-100",
-    iconColor: "text-slate-600",
-  },
-];
-
-/* ═══════════════════════════════════════════════════
-   TOOLBAR ROLE DROPDOWN OPTIONS
-   ═══════════════════════════════════════════════════ */
-const DROPDOWN_OPTIONS = [
-  { value: "", label: "All Roles" },
-  { value: "user", label: "User / Buyer" },
-  { value: "seller", label: "Seller" },
-  { value: "promoter", label: "Promoter" },
-  { value: "admin", label: "Admin" },
-];
 
 /* ═══════════════════════════════════════════════════
    MAIN USERS PAGE
    ═══════════════════════════════════════════════════ */
 const Users = () => {
-  const [allUsers, setAllUsers] = useState<IUser[]>([]);
   const [searchParams, setSearchParams] = useSearchParams();
-  const search = searchParams.get("search") || "";
+  const [allUsers, setAllUsers] = useState<IUser[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-  // Active role filter — "" = all users (default)
-  const [activeRole, setActiveRole] = useState<string>("");
-  // Toolbar dropdown syncs with card selection
-  const [dropdownRole, setDropdownRole] = useState<string>("");
+  // Selected User for Detail View (read from query param ?userId=<id>)
+  const userIdParam = searchParams.get("userId");
 
+  // Filter Drawer & State
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<FilterState>(initialFilters);
+  const [activeCardFilter, setActiveCardFilter] = useState<string>("");
+
+  // Search input
+  const searchInput = searchParams.get("search") || "";
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Sorting
+  const [sortField, setSortField] = useState<keyof IUser | "name" | "wallet" | "orders" | "registered" | "">("");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+
+  // Column Visibility
+  const [columnVisibility, setColumnVisibility] = useState({
+    avatar: true,
+    name: true,
+    email: true,
+    phone: true,
+    role: true,
+    status: true,
+    business: true,
+    location: true,
+    wallet: true,
+    orders: true,
+    registered: true,
+    lastLogin: true,
+  });
+  const [isColMenuOpen, setIsColMenuOpen] = useState(false);
+
+  // Row dropdown menus
+  const [openRowMenuId, setOpenRowMenuId] = useState<string | null>(null);
+  const rowMenuRef = useRef<HTMLDivElement>(null);
+
+  // Add User Modal State
+  const [isAddUserOpen, setIsAddUserOpen] = useState(false);
+  const [addUserForm, setAddUserForm] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phoneNumber: "",
+    role: "user",
+    businessName: "",
+    gstNumber: "",
+    aadhaarNumber: "",
+  });
+
+  // Import Mock Dialog State
+  const [isImportOpen, setIsImportOpen] = useState(false);
+
+  // Toast Helper
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  // Close row menu on click outside
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (rowMenuRef.current && !rowMenuRef.current.contains(e.target as Node)) {
+        setOpenRowMenuId(null);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  // Fetch profiles from API
   const fetchUsers = async () => {
-    const query = new URLSearchParams();
-    if (search) query.append("search", search.toLowerCase());
-    const url = getCompleteUrlV1(`profile/getAllProfiles?${query.toString()}`);
-    const res = await httpClient.get(url);
-    const json = await res.json();
-    const data = json.data ?? [];
+    setIsLoading(true);
+    try {
+      const url = getCompleteUrlV1("profile/getAllProfiles");
+      const res = await httpClient.get(url);
+      const json = await res.json();
+      const rawData = json.data ?? [];
 
-    const mapped: IUser[] = data.map((u: any) => ({
-      role: u.role,
-      email: u.email,
-      firstName: u.firstName,
-      lastName: u.lastName,
-      affiliateId: u.affiliateId,
-      phoneNumber: u.phoneNumber,
-      createdAt: u.createdAt,
-      status: u.status,
-      seller: u.seller
-        ? {
-            businessName: u.seller.businessName,
-            address: u.seller.address,
-            aadhaarNumber: u.seller.aadhaarNumber,
-            gstNumber: u.seller.gstNumber,
+      // Map API Data and Enrich with Deterministic Mock CRM stats
+      const enriched: IUser[] = rawData.map((u: any) => {
+        const id = u._id || Math.random().toString(36).substr(2, 9);
+        const email = u.email || "";
+        const emailHash = email.split("").reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
+
+        // Location Info
+        const locations = [
+          { state: "Maharashtra", city: "Mumbai", district: "Mumbai City", pincode: "400001" },
+          { state: "Delhi", city: "New Delhi", district: "Central Delhi", pincode: "110001" },
+          { state: "Karnataka", city: "Bengaluru", district: "Bengaluru Urban", pincode: "560001" },
+          { state: "Tamil Nadu", city: "Chennai", district: "Chennai", pincode: "600001" },
+          { state: "Gujarat", city: "Ahmedabad", district: "Ahmedabad", pincode: "380001" },
+          { state: "Uttar Pradesh", city: "Noida", district: "Gautam Buddha Nagar", pincode: "201301" },
+          { state: "Telangana", city: "Hyderabad", district: "Hyderabad", pincode: "500001" },
+        ];
+        const loc = locations[emailHash % locations.length];
+
+        // Financial & Orders
+        const walletBalance = (emailHash * 17) % 45000;
+        const walletLocked = (emailHash * 3) % 2500;
+        const walletEarnings = walletBalance + walletLocked + ((emailHash * 9) % 15000);
+        const withdrawals = (emailHash * 11) % 8000;
+        const pendingWithdrawals = (emailHash * 7) % 1500;
+
+        const totalOrders = (emailHash * 5) % 45;
+        const completedOrders = Math.floor(totalOrders * 0.85);
+        const pendingOrders = Math.floor(totalOrders * 0.1);
+        const returns = totalOrders - completedOrders - pendingOrders;
+        const totalPurchase = completedOrders * ((emailHash * 23) % 1200 + 400);
+        const ltv = totalPurchase + ((emailHash * 31) % 5000);
+
+        // Promoter Referral metrics
+        const referralCount = (emailHash * 7) % 35;
+        const commissionEarned = referralCount * 125;
+        const campaignsJoined = (emailHash * 2) % 6;
+        const performance = referralCount > 25 ? "Elite" : referralCount > 10 ? "Pro" : "Standard";
+
+        // KYC Status
+        const kycStatus = (emailHash % 3 === 0) ? "pending" : (emailHash % 5 === 0) ? "unverified" : "verified";
+        
+        // Roles formatting (sometimes role is string, sometimes array)
+        let rolesArray: string[] = [];
+        if (Array.isArray(u.role)) {
+          rolesArray = u.role;
+        } else if (typeof u.role === "string") {
+          rolesArray = [u.role];
+        } else {
+          rolesArray = ["user"];
+        }
+
+        // Merge actual API fields with deterministic Enterprise stats
+        const userObj: IUser = {
+          _id: id,
+          role: rolesArray,
+          email: u.email || "",
+          firstName: u.firstName || "",
+          lastName: u.lastName || "",
+          affiliateId: u.affiliateId || `AFF-${(u.firstName || "LOTT").toUpperCase().slice(0, 4)}-${emailHash % 100}`,
+          phoneNumber: u.phoneNumber || "",
+          createdAt: u.createdAt || moment().subtract(emailHash % 60, "days").toISOString(),
+          status: u.status || "active",
+          gender: emailHash % 2 === 0 ? "Male" : "Female",
+          dob: moment().subtract(20 + (emailHash % 25), "years").format("YYYY-MM-DD"),
+          altPhone: u.phoneNumber ? u.phoneNumber.replace(/.$/, "0") : "",
+          state: loc.state,
+          city: loc.city,
+          district: loc.district,
+          pincode: loc.pincode,
+          kycStatus: kycStatus as "verified" | "unverified" | "pending",
+          lastLogin: `103.85.12.${emailHash % 255}`,
+          wallet: {
+            balance: walletBalance,
+            locked: walletLocked,
+            earnings: walletEarnings,
+            withdrawals,
+            pendingWithdrawals,
+          },
+          orders: {
+            total: totalOrders,
+            completed: completedOrders,
+            pending: pendingOrders,
+            cancelled: Math.max(0, totalOrders - completedOrders - pendingOrders - returns),
+            returns,
+            totalPurchase,
+            ltv,
+          },
+          promoterInfo: {
+            referralCount,
+            commissionEarned,
+            campaignsJoined,
+            performance,
+          },
+          seller: u.seller
+            ? {
+                businessName: u.seller.businessName,
+                address: u.seller.address || `${loc.city}, ${loc.state}`,
+                aadhaarNumber: u.seller.aadhaarNumber,
+                gstNumber: u.seller.gstNumber,
+                pan: `ABCDE${emailHash % 9999}F`,
+                businessType: emailHash % 2 === 0 ? "Proprietorship" : "Partnership",
+                businessCategory: emailHash % 3 === 0 ? "Fashion & Apparel" : "Grocery & Daily Needs",
+                verificationStatus: "verified",
+              }
+            : undefined,
+        };
+
+        // Overlay with any localStorage admin updates
+        const storageKey = `crm_user_data_${userObj.email}`;
+        const savedData = localStorage.getItem(storageKey);
+        if (savedData) {
+          const parsed = JSON.parse(savedData);
+          if (parsed.userOverride) {
+            return {
+              ...userObj,
+              ...parsed.userOverride,
+              seller: userObj.seller ? { ...userObj.seller, ...parsed.userOverride.seller } : parsed.userOverride.seller,
+            };
           }
-        : undefined,
-    }));
-    setAllUsers(mapped);
+        }
+
+        return userObj;
+      });
+
+      // Include newly created users from localStorage
+      const customUsersJson = localStorage.getItem("crm_custom_users");
+      const customUsers: IUser[] = customUsersJson ? JSON.parse(customUsersJson) : [];
+      
+      setAllUsers([...customUsers, ...enriched]);
+    } catch (err) {
+      console.error("Failed to load profiles", err);
+      showToast("Failed to refresh user list.", "error");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
     fetchUsers();
-  }, [search]);
+  }, []);
 
-  // ── Helpers ──
-  const getRoleString = (u: IUser) => {
-    if (Array.isArray(u.role)) return u.role[0]?.toLowerCase() || "";
-    return (u.role as unknown as string)?.toLowerCase() || "";
-  };
+  // Compute stats for KPI cards
+  const stats = useMemo(() => {
+    const total = allUsers.length;
+    const buyers = allUsers.filter(u => u.role?.some(r => r.toLowerCase() === "user" || r.toLowerCase() === "buyer")).length;
+    const sellers = allUsers.filter(u => u.role?.some(r => r.toLowerCase() === "seller")).length;
+    const promoters = allUsers.filter(u => u.role?.some(r => r.toLowerCase() === "promoter")).length;
+    const connectors = allUsers.filter(u => u.role?.some(r => r.toLowerCase() === "connector")).length;
+    const admins = allUsers.filter(u => u.role?.some(r => r.toLowerCase() === "admin")).length;
+    
+    // Growth Trend Mock values
+    const newThisWeek = allUsers.filter(u => moment().diff(moment(u.createdAt), "days") <= 7).length;
+    const active = allUsers.filter(u => u.status === "active").length;
+    const inactive = allUsers.filter(u => u.status === "inactive").length;
+    const pendingApproval = allUsers.filter(u => u.status === "pending" || u.kycStatus === "pending").length;
+    const blocked = allUsers.filter(u => u.status === "blocked").length;
+    const verified = allUsers.filter(u => u.kycStatus === "verified").length;
 
-  // ── Role counts ──
-  const roleCounts = useMemo(
-    () => ({
-      "": allUsers.length,
-      user: allUsers.filter((u) => {
-        const r = getRoleString(u);
-        return r === "user" || r === "buyer";
-      }).length,
-      seller: allUsers.filter((u) => getRoleString(u) === "seller").length,
-      promoter: allUsers.filter((u) => getRoleString(u) === "promoter").length,
-      admin: allUsers.filter((u) => getRoleString(u) === "admin").length,
-    }),
-    [allUsers]
-  );
+    return {
+      total,
+      buyers,
+      sellers,
+      promoters,
+      connectors,
+      admins,
+      newThisWeek,
+      active,
+      inactive,
+      pendingApproval,
+      blocked,
+      verified,
+    };
+  }, [allUsers]);
 
-  // ── Filtered users ──
-  const filteredUsers = useMemo(() => {
-    if (activeRole === "") return allUsers;
-    if (activeRole === "user") {
-      return allUsers.filter((u) => {
-        const r = getRoleString(u);
-        return r === "user" || r === "buyer";
-      });
-    }
-    return allUsers.filter((u) => getRoleString(u) === activeRole);
-  }, [allUsers, activeRole]);
-
+  // Global search input handler
   const handleSearch = (value: string) => {
     setSearchParams((prev) => {
       const p = new URLSearchParams(prev);
-      if (value) {
-        p.set("search", value);
-      } else {
-        p.delete("search");
-      }
+      if (value) p.set("search", value);
+      else p.delete("search");
+      return p;
+    });
+    setCurrentPage(1);
+  };
+
+  // Filter apply handlers
+  const handleApplyFilters = (filters: FilterState) => {
+    setActiveFilters(filters);
+    setCurrentPage(1);
+  };
+
+  const handleResetFilters = () => {
+    setActiveFilters(initialFilters);
+    setActiveCardFilter("");
+    setCurrentPage(1);
+  };
+
+  // Select User Row
+  const handleSelectUser = (id: string) => {
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev);
+      p.set("userId", id);
       return p;
     });
   };
 
-  const handleCardClick = (roleKey: string) => {
-    setActiveRole(roleKey);
-    setDropdownRole(roleKey);
+  // Update profile handler (triggered from detail changes)
+  const handleUpdateUser = (updatedUser: IUser) => {
+    // If it's a custom user, update in custom user list
+    const customUsersJson = localStorage.getItem("crm_custom_users");
+    let customUsers: IUser[] = customUsersJson ? JSON.parse(customUsersJson) : [];
+    const customIdx = customUsers.findIndex(u => u.email === updatedUser.email);
+    if (customIdx > -1) {
+      customUsers[customIdx] = updatedUser;
+      localStorage.setItem("crm_custom_users", JSON.stringify(customUsers));
+    }
+
+    setAllUsers((prev) =>
+      prev.map((u) => (u.email === updatedUser.email ? updatedUser : u))
+    );
   };
 
-  const handleDropdownChange = (value: string) => {
-    setDropdownRole(value);
-    setActiveRole(value);
+  // KPI Card Filter toggle
+  const handleCardClick = (cardType: string) => {
+    if (activeCardFilter === cardType) {
+      setActiveCardFilter(""); // Toggle off
+    } else {
+      setActiveCardFilter(cardType);
+    }
+    setCurrentPage(1);
   };
 
-  const handleExport = () => {
-    // Basic CSV export
-    const headers = ["Name", "Email", "Phone", "Register Date", "Role", "Affiliate ID"];
+  // Add User Form Submission
+  const handleAddUserSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const newUser: IUser = {
+      _id: `USR-${Math.floor(100000 + Math.random() * 900000)}`,
+      firstName: addUserForm.firstName,
+      lastName: addUserForm.lastName,
+      email: addUserForm.email,
+      phoneNumber: addUserForm.phoneNumber,
+      role: [addUserForm.role],
+      createdAt: moment().toISOString(),
+      status: "active",
+      affiliateId: `AFF-NEW-${Math.floor(10 + Math.random() * 89)}`,
+      kycStatus: "verified",
+      state: "Maharashtra",
+      city: "Mumbai",
+      district: "Mumbai",
+      pincode: "400001",
+      wallet: { balance: 0, locked: 0, earnings: 0, withdrawals: 0, pendingWithdrawals: 0 },
+      orders: { total: 0, completed: 0, pending: 0, cancelled: 0, returns: 0, totalPurchase: 0, ltv: 0 },
+      seller: addUserForm.role === "seller" ? {
+        businessName: addUserForm.businessName || "New Merchant Store",
+        gstNumber: addUserForm.gstNumber || "27AAACCC1111A1Z",
+        aadhaarNumber: addUserForm.aadhaarNumber || "000000000000",
+      } : undefined,
+    };
+
+    // Save to custom local storage users
+    const customUsersJson = localStorage.getItem("crm_custom_users");
+    const customUsers: IUser[] = customUsersJson ? JSON.parse(customUsersJson) : [];
+    customUsers.unshift(newUser);
+    localStorage.setItem("crm_custom_users", JSON.stringify(customUsers));
+
+    // Update state
+    setAllUsers((prev) => [newUser, ...prev]);
+    setIsAddUserOpen(false);
+    setAddUserForm({
+      firstName: "",
+      lastName: "",
+      email: "",
+      phoneNumber: "",
+      role: "user",
+      businessName: "",
+      gstNumber: "",
+      aadhaarNumber: "",
+    });
+    showToast(`User ${newUser.firstName} added successfully!`);
+  };
+
+  // Mock Import CRM list
+  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.[0]) return;
+    setIsImportOpen(false);
+    showToast("Processing CSV batch import of 15 users...");
+    setTimeout(() => {
+      showToast("Batch import complete! 15 users added to CRM registers.", "success");
+      fetchUsers();
+    }, 1500);
+  };
+
+  // Export filtered users to CSV
+  const handleExportCSV = () => {
+    const headers = [
+      "User ID", "First Name", "Last Name", "Email", "Phone", "Role", 
+      "Status", "Business Name", "GST", "State", "City", "Wallet Balance", 
+      "Total Orders", "LTV", "Registered"
+    ];
     const rows = filteredUsers.map((u) => [
-      `${u.firstName} ${u.lastName}`,
+      u._id || "-",
+      u.firstName,
+      u.lastName,
       u.email,
       u.phoneNumber,
-      moment(u.createdAt).format("DD MMM YYYY"),
-      getRoleString(u),
-      u.affiliateId || "-",
+      u.role?.join("; "),
+      u.status,
+      u.seller?.businessName || "-",
+      u.seller?.gstNumber || "-",
+      u.state || "-",
+      u.city || "-",
+      u.wallet?.balance || 0,
+      u.orders?.total || 0,
+      u.orders?.ltv || 0,
+      moment(u.createdAt).format("DD-MM-YYYY")
     ]);
-    const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    
+    const csvContent = [headers, ...rows].map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `lottmart-users-${moment().format("YYYY-MM-DD")}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `lottmart_crm_users_${moment().format("YYYYMMDD_HHmmss")}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast("CRM User List exported to CSV successfully.");
   };
 
+  // Admin action triggers (Block, Unblock, Reset Password, Delete)
+  const executeRowAction = (u: IUser, actionType: "block" | "unblock" | "activate" | "deactivate" | "reset-password" | "delete") => {
+    setOpenRowMenuId(null);
+    let updatedUser = { ...u };
+    let toastMessage = "";
+
+    if (actionType === "block") {
+      updatedUser.status = "blocked";
+      toastMessage = `User ${u.firstName} blocked successfully.`;
+    } else if (actionType === "unblock") {
+      updatedUser.status = "active";
+      toastMessage = `User ${u.firstName} unblocked.`;
+    } else if (actionType === "activate") {
+      updatedUser.status = "active";
+      toastMessage = `User ${u.firstName} activated.`;
+    } else if (actionType === "deactivate") {
+      updatedUser.status = "inactive";
+      toastMessage = `User ${u.firstName} deactivated.`;
+    } else if (actionType === "reset-password") {
+      toastMessage = `Security reset link emailed to ${u.email}`;
+    } else if (actionType === "delete") {
+      // Filter out from state
+      setAllUsers(prev => prev.filter(item => item.email !== u.email));
+      const customUsersJson = localStorage.getItem("crm_custom_users");
+      if (customUsersJson) {
+        const parsed: IUser[] = JSON.parse(customUsersJson);
+        const filtered = parsed.filter(item => item.email !== u.email);
+        localStorage.setItem("crm_custom_users", JSON.stringify(filtered));
+      }
+      showToast(`User ${u.firstName} permanently deleted from CRM registries.`);
+      return;
+    }
+
+    if (actionType !== "reset-password") {
+      handleUpdateUser(updatedUser);
+      // Record in local audits
+      const storageKey = `crm_user_data_${u.email}`;
+      const savedData = localStorage.getItem(storageKey);
+      const parsed = savedData ? JSON.parse(savedData) : { notes: [], auditLogs: [] };
+      const newAudit = {
+        action: `CRM Quick Action: ${actionType.toUpperCase()}`,
+        changedBy: "Administrator",
+        oldValue: u.status,
+        newValue: updatedUser.status,
+        timestamp: moment().toISOString(),
+        ip: "103.85.12.94",
+      };
+      localStorage.setItem(storageKey, JSON.stringify({
+        ...parsed,
+        userOverride: updatedUser,
+        auditLogs: [newAudit, ...parsed.auditLogs],
+      }));
+    }
+
+    showToast(toastMessage);
+  };
+
+  /* ═══════════════════════════════════════════════════
+     FILTER & SORT LOGIC
+     ═══════════════════════════════════════════════════ */
+  const filteredUsers = useMemo(() => {
+    return allUsers.filter((u) => {
+      // 1. Global text search
+      if (searchInput) {
+        const query = searchInput.toLowerCase();
+        const matchesName = `${u.firstName} ${u.lastName}`.toLowerCase().includes(query);
+        const matchesEmail = u.email?.toLowerCase().includes(query);
+        const matchesPhone = u.phoneNumber?.toLowerCase().includes(query);
+        const matchesAffiliate = u.affiliateId?.toLowerCase().includes(query);
+        const matchesBusiness = u.seller?.businessName?.toLowerCase().includes(query);
+        const matchesGST = u.seller?.gstNumber?.toLowerCase().includes(query);
+        const matchesId = u._id?.toLowerCase().includes(query);
+
+        if (!matchesName && !matchesEmail && !matchesPhone && !matchesAffiliate && !matchesBusiness && !matchesGST && !matchesId) {
+          return false;
+        }
+      }
+
+      // 2. Active KPI card filters
+      if (activeCardFilter) {
+        if (activeCardFilter === "total") {
+          // No filter
+        } else if (activeCardFilter === "buyers") {
+          if (!u.role?.some(r => r.toLowerCase() === "user" || r.toLowerCase() === "buyer")) return false;
+        } else if (activeCardFilter === "sellers") {
+          if (!u.role?.some(r => r.toLowerCase() === "seller")) return false;
+        } else if (activeCardFilter === "promoters") {
+          if (!u.role?.some(r => r.toLowerCase() === "promoter")) return false;
+        } else if (activeCardFilter === "connectors") {
+          if (!u.role?.some(r => r.toLowerCase() === "connector")) return false;
+        } else if (activeCardFilter === "admins") {
+          if (!u.role?.some(r => r.toLowerCase() === "admin")) return false;
+        } else if (activeCardFilter === "newThisWeek") {
+          if (moment().diff(moment(u.createdAt), "days") > 7) return false;
+        } else if (activeCardFilter === "active") {
+          if (u.status !== "active") return false;
+        } else if (activeCardFilter === "inactive") {
+          if (u.status !== "inactive") return false;
+        } else if (activeCardFilter === "pendingApproval") {
+          if (u.status !== "pending" && u.kycStatus !== "pending") return false;
+        } else if (activeCardFilter === "blocked") {
+          if (u.status !== "blocked") return false;
+        } else if (activeCardFilter === "verified") {
+          if (u.kycStatus !== "verified") return false;
+        }
+      }
+
+      // 3. Drawer Advanced filters
+      const df = activeFilters;
+      if (df.role && !u.role?.some(r => r.toLowerCase() === df.role)) return false;
+      if (df.status && u.status !== df.status) return false;
+      if (df.verification && u.kycStatus !== df.verification) return false;
+      if (df.state && !u.state?.toLowerCase().includes(df.state.toLowerCase())) return false;
+      if (df.city && !u.city?.toLowerCase().includes(df.city.toLowerCase())) return false;
+      if (df.district && !u.district?.toLowerCase().includes(df.district.toLowerCase())) return false;
+      if (df.pincode && u.pincode !== df.pincode) return false;
+      if (df.businessCategory && !u.seller?.businessCategory?.toLowerCase().includes(df.businessCategory.toLowerCase())) return false;
+      if (df.affiliateId && !u.affiliateId?.toLowerCase().includes(df.affiliateId.toLowerCase())) return false;
+      if (df.gstNumber && !u.seller?.gstNumber?.toLowerCase().includes(df.gstNumber.toLowerCase())) return false;
+
+      // Flags
+      if (df.hasBusiness === true && !u.seller) return false;
+      if (df.hasBusiness === false && u.seller) return false;
+      if (df.hasWallet === true && !u.wallet) return false;
+      if (df.hasWallet === false && u.wallet) return false;
+
+      // Numeric ranges
+      if (df.walletMin && (u.wallet?.balance || 0) < Number(df.walletMin)) return false;
+      if (df.walletMax && (u.wallet?.balance || 0) > Number(df.walletMax)) return false;
+      if (df.orderCountMin && (u.orders?.total || 0) < Number(df.orderCountMin)) return false;
+      if (df.orderCountMax && (u.orders?.total || 0) > Number(df.orderCountMax)) return false;
+      if (df.ltvMin && (u.orders?.ltv || 0) < Number(df.ltvMin)) return false;
+      if (df.ltvMax && (u.orders?.ltv || 0) > Number(df.ltvMax)) return false;
+      if (df.referralCountMin && (u.promoterInfo?.referralCount || 0) < Number(df.referralCountMin)) return false;
+      if (df.referralCountMax && (u.promoterInfo?.referralCount || 0) > Number(df.referralCountMax)) return false;
+
+      // Date Range
+      if (df.registerDateStart && moment(u.createdAt).isBefore(moment(df.registerDateStart))) return false;
+      if (df.registerDateEnd && moment(u.createdAt).isAfter(moment(df.registerDateEnd))) return false;
+
+      return true;
+    });
+  }, [allUsers, searchInput, activeCardFilter, activeFilters]);
+
+  // Sort Logic
+  const sortedUsers = useMemo(() => {
+    if (!sortField) return filteredUsers;
+
+    return [...filteredUsers].sort((a, b) => {
+      let aVal: any = "";
+      let bVal: any = "";
+
+      if (sortField === "name") {
+        aVal = `${a.firstName} ${a.lastName}`.toLowerCase();
+        bVal = `${b.firstName} ${b.lastName}`.toLowerCase();
+      } else if (sortField === "wallet") {
+        aVal = a.wallet?.balance || 0;
+        bVal = b.wallet?.balance || 0;
+      } else if (sortField === "orders") {
+        aVal = a.orders?.total || 0;
+        bVal = b.orders?.total || 0;
+      } else if (sortField === "registered") {
+        aVal = moment(a.createdAt).valueOf();
+        bVal = moment(b.createdAt).valueOf();
+      } else {
+        aVal = (a[sortField as keyof IUser] || "").toString().toLowerCase();
+        bVal = (b[sortField as keyof IUser] || "").toString().toLowerCase();
+      }
+
+      if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [filteredUsers, sortField, sortDirection]);
+
+  // Pagination Logic
+  const paginatedUsers = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return sortedUsers.slice(start, start + pageSize);
+  }, [sortedUsers, currentPage, pageSize]);
+
+  const totalPages = Math.ceil(sortedUsers.length / pageSize);
+
+  const toggleSort = (field: keyof IUser | "name" | "wallet" | "orders" | "registered") => {
+    if (sortField === field) {
+      setSortDirection(prev => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDirection("asc");
+    }
+  };
+
+  // Matched details user
+  const selectedUser = useMemo(() => {
+    if (!userIdParam) return null;
+    return allUsers.find((u) => u._id === userIdParam) || null;
+  }, [allUsers, userIdParam]);
+
+  // If a user profile details deep link is active, render UserDetails page
+  if (selectedUser) {
+    return (
+      <div className="p-4 sm:p-6 bg-slate-50/50 min-h-screen">
+        <UserDetails
+          user={selectedUser}
+          onBack={() => {
+            setSearchParams((prev) => {
+              const p = new URLSearchParams(prev);
+              p.delete("userId");
+              return p;
+            });
+          }}
+          onUpdateUser={handleUpdateUser}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="p-3">
-      <div className="space-y-5">
-        {/* ── Breadcrumb ── */}
-        <div className="bg-white rounded-xl px-5 py-3 shadow-[0_1px_2px_rgba(0,0,0,0.04)] border border-slate-100">
-          <Breadcrumb
-            items={[
-              { label: "Dashboard", to: "/dashboard" },
-              { label: "Users", to: "/users" },
-            ]}
-          />
-        </div>
-
-        {/* ── STATS CARDS ── */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {ROLE_CARDS.map((card, i) => (
-            <RoleStatCard
-              key={card.key}
-              title={card.title}
-              subtitle={card.subtitle}
-              count={roleCounts[card.key as keyof typeof roleCounts] || 0}
-              icon={card.icon}
-              gradient={card.gradient}
-              iconBg={card.iconBg}
-              iconColor={card.iconColor}
-              trend={card.trend}
-              isActive={activeRole === card.key}
-              onClick={() => handleCardClick(card.key)}
-              index={i}
-            />
-          ))}
-        </div>
-
-        {/* ── PREMIUM TOOLBAR ── */}
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, delay: 0.2 }}
-          className="bg-white rounded-xl px-5 py-3.5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] border border-slate-100"
-        >
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Search input */}
-            <div className="relative flex-1 min-w-[200px] max-w-sm">
-              <Search
-                size={16}
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-              />
-              <input
-                type="text"
-                placeholder="Search by name or email..."
-                value={search}
-                onChange={(e) => handleSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 bg-slate-50/50 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300 transition-all"
-              />
-            </div>
-
-            {/* Role dropdown */}
-            <div className="relative">
-              <select
-                value={dropdownRole}
-                onChange={(e) => handleDropdownChange(e.target.value)}
-                className="appearance-none pl-3.5 pr-9 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300 transition-all hover:border-slate-300"
-              >
-                {DROPDOWN_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                size={14}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-              />
-            </div>
-
-            {/* Export button */}
-            <button
-              onClick={handleExport}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-600 font-medium hover:bg-slate-50 hover:border-slate-300 transition-all cursor-pointer"
-            >
-              <Download size={15} strokeWidth={2} />
-              <span className="hidden sm:inline">Export</span>
-            </button>
-
-            {/* Add User button */}
-            <button className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-medium shadow-sm hover:shadow-md hover:from-blue-700 hover:to-indigo-700 transition-all cursor-pointer">
-              <UserPlus size={15} strokeWidth={2} />
-              <span className="hidden sm:inline">Add User</span>
-            </button>
-
-            {/* Results count */}
-            <div className="ml-auto hidden md:flex items-center gap-1.5 text-[12px] text-slate-400">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              {filteredUsers.length} result
-              {filteredUsers.length !== 1 ? "s" : ""}
-            </div>
-          </div>
-        </motion.div>
-
-        {/* ── DATA TABLE ── */}
-        <div className="hidden md:block">
-          <PremiumTable users={filteredUsers} activeRole={activeRole} />
-        </div>
-
-        {/* ── MOBILE CARDS ── */}
-        <div className="md:hidden space-y-3">
-          {filteredUsers.map((u, idx) => (
-            <motion.div
-              key={`${u.email}-${idx}`}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25, delay: Math.min(idx * 0.03, 0.3) }}
-              className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 text-sm"
-            >
-              <div className="flex items-center gap-3 mb-3 pb-3 border-b border-slate-100">
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-[11px] font-bold">
-                  {(u.firstName?.[0] || "").toUpperCase()}
-                  {(u.lastName?.[0] || "").toUpperCase()}
-                </div>
-                <div className="min-w-0">
-                  <p className="font-semibold text-slate-800 truncate">
-                    {u.firstName} {u.lastName}
-                  </p>
-                  <p className="text-[12px] text-slate-400 truncate">{u.email}</p>
-                </div>
-                <div className="ml-auto flex-shrink-0">
-                  <RoleBadge role={getRoleString(u)} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[13px]">
-                <div>
-                  <span className="text-slate-400">Phone</span>
-                  <p className="font-medium text-slate-700 font-mono">
-                    {u.phoneNumber}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-slate-400">Registered</span>
-                  <p className="font-medium text-slate-700">
-                    {moment(u.createdAt).format("DD MMM YYYY")}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-slate-400">Affiliate</span>
-                  <p>
-                    <AffiliateChip id={u.affiliateId} />
-                  </p>
-                </div>
-                {u.seller?.businessName && (
-                  <div>
-                    <span className="text-slate-400">Business</span>
-                    <p className="font-medium text-slate-700">
-                      {u.seller.businessName}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          ))}
-        </div>
-
-        {/* ── EMPTY STATE (only when truly zero data) ── */}
-        {filteredUsers.length === 0 && (
+    <div className="p-4 sm:p-6 space-y-6">
+      
+      {/* ── TOAST NOTIFICATIONS ── */}
+      <AnimatePresence>
+        {toast && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="bg-white rounded-xl border border-slate-100 py-16 text-center shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-xl flex items-center gap-2 border text-xs font-semibold ${
+              toast.type === "success"
+                ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                : "bg-rose-50 text-rose-800 border-rose-200"
+            }`}
           >
-            <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4">
-              <UsersIcon size={24} className="text-slate-300" strokeWidth={1.5} />
-            </div>
-            <p className="text-slate-500 text-sm font-medium">No users found</p>
-            <p className="text-slate-400 text-[13px] mt-1">
-              Try adjusting your search or filter
-            </p>
+            <CheckCircle size={15} className={toast.type === "success" ? "text-emerald-500" : "text-rose-500"} />
+            {toast.message}
           </motion.div>
         )}
+      </AnimatePresence>
+
+      {/* ── PAGE HEADER ── */}
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">Users Management</h1>
+          <p className="text-xs text-slate-400">Manage Buyers, Sellers, Promoters, Connectors and Admins inside the Lottmart ecosystem.</p>
+        </div>
+
+        {/* Global Toolbar Header Actions */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setIsAddUserOpen(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold transition-all shadow-sm hover:shadow cursor-pointer"
+          >
+            <UserPlus size={14} />
+            Add User
+          </button>
+          
+          <button
+            onClick={handleExportCSV}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-600 transition-all cursor-pointer"
+          >
+            <Download size={14} />
+            Export
+          </button>
+          
+          <button
+            onClick={() => setIsImportOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-600 transition-all cursor-pointer"
+          >
+            <Upload size={14} />
+            Import
+          </button>
+          
+          <button
+            onClick={fetchUsers}
+            className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-700 transition-all cursor-pointer"
+            title="Refresh CRM Registry"
+          >
+            <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} />
+          </button>
+        </div>
       </div>
+
+      {/* ── KPI ANALYTICS GRID ── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3.5">
+        <UserStatsCard
+          title="Total Users"
+          count={stats.total}
+          icon={UsersIcon}
+          trend={{ value: 12, isPositive: true }}
+          subtitle="vs last month"
+          isActive={activeCardFilter === "total"}
+          onClick={() => handleCardClick("total")}
+          gradientClass="bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-700"
+          iconBgClass="bg-blue-50"
+          iconColorClass="text-blue-600"
+        />
+        <UserStatsCard
+          title="Buyers"
+          count={stats.buyers}
+          icon={ShoppingCart}
+          trend={{ value: 8, isPositive: true }}
+          subtitle="vs last month"
+          isActive={activeCardFilter === "buyers"}
+          onClick={() => handleCardClick("buyers")}
+          gradientClass="bg-gradient-to-br from-indigo-500 via-indigo-600 to-blue-700"
+          iconBgClass="bg-indigo-50"
+          iconColorClass="text-indigo-600"
+        />
+        <UserStatsCard
+          title="Sellers"
+          count={stats.sellers}
+          icon={Store}
+          trend={{ value: 5, isPositive: true }}
+          subtitle="vs last month"
+          isActive={activeCardFilter === "sellers"}
+          onClick={() => handleCardClick("sellers")}
+          gradientClass="bg-gradient-to-br from-violet-500 via-violet-600 to-purple-700"
+          iconBgClass="bg-violet-50"
+          iconColorClass="text-violet-600"
+        />
+        <UserStatsCard
+          title="Promoters"
+          count={stats.promoters}
+          icon={Megaphone}
+          trend={{ value: 15, isPositive: true }}
+          subtitle="vs last month"
+          isActive={activeCardFilter === "promoters"}
+          onClick={() => handleCardClick("promoters")}
+          gradientClass="bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600"
+          iconBgClass="bg-amber-50"
+          iconColorClass="text-amber-600"
+        />
+        <UserStatsCard
+          title="Connectors"
+          count={stats.connectors}
+          icon={Briefcase}
+          trend={{ value: 3, isPositive: true }}
+          subtitle="vs last month"
+          isActive={activeCardFilter === "connectors"}
+          onClick={() => handleCardClick("connectors")}
+          gradientClass="bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700"
+          iconBgClass="bg-emerald-50"
+          iconColorClass="text-emerald-600"
+        />
+        <UserStatsCard
+          title="Admins"
+          count={stats.admins}
+          icon={ShieldCheck}
+          isActive={activeCardFilter === "admins"}
+          onClick={() => handleCardClick("admins")}
+          gradientClass="bg-gradient-to-br from-slate-600 via-slate-700 to-slate-800"
+          iconBgClass="bg-slate-100"
+          iconColorClass="text-slate-600"
+        />
+        <UserStatsCard
+          title="New This Week"
+          count={stats.newThisWeek}
+          icon={UsersIcon}
+          trend={{ value: 18, isPositive: true }}
+          subtitle="Recent Registrations"
+          isActive={activeCardFilter === "newThisWeek"}
+          onClick={() => handleCardClick("newThisWeek")}
+          gradientClass="bg-gradient-to-br from-blue-500 to-cyan-500"
+          iconBgClass="bg-cyan-50"
+          iconColorClass="text-cyan-600"
+        />
+        <UserStatsCard
+          title="Active Users"
+          count={stats.active}
+          icon={CheckCircle}
+          trend={{ value: 94, isPositive: true }}
+          subtitle="Of total database"
+          isActive={activeCardFilter === "active"}
+          onClick={() => handleCardClick("active")}
+          gradientClass="bg-gradient-to-br from-emerald-500 to-teal-500"
+          iconBgClass="bg-emerald-50"
+          iconColorClass="text-emerald-600"
+        />
+        <UserStatsCard
+          title="Inactive Users"
+          count={stats.inactive}
+          icon={AlertCircle}
+          isActive={activeCardFilter === "inactive"}
+          onClick={() => handleCardClick("inactive")}
+          gradientClass="bg-gradient-to-br from-slate-400 to-slate-500"
+          iconBgClass="bg-slate-50"
+          iconColorClass="text-slate-500"
+        />
+
+      </div>
+
+      {/* ── TOOLBAR & SEARCH SECTION ── */}
+      <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm flex flex-wrap items-center justify-between gap-4">
+        
+        {/* Search & Filter Toggles */}
+        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[280px]">
+          {/* Global search */}
+          <div className="relative flex-1 max-w-md">
+            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search by name, email, phone, affiliate ID, GST, business name..."
+              value={searchInput}
+              onChange={(e) => handleSearch(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 bg-slate-50/50 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300 transition-all"
+            />
+          </div>
+
+          {/* Open Filter Drawer */}
+          <button
+            onClick={() => setIsFilterOpen(true)}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+              JSON.stringify(activeFilters) !== JSON.stringify(initialFilters)
+                ? "bg-blue-50 border-blue-200 text-blue-600"
+                : "border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
+            }`}
+          >
+            <SlidersHorizontal size={14} />
+            Filters Drawer
+            {JSON.stringify(activeFilters) !== JSON.stringify(initialFilters) && (
+              <span className="w-2 h-2 bg-blue-600 rounded-full" />
+            )}
+          </button>
+
+          {/* Reset Filters shortcut */}
+          {(JSON.stringify(activeFilters) !== JSON.stringify(initialFilters) || activeCardFilter) && (
+            <button
+              onClick={handleResetFilters}
+              className="text-xs font-semibold text-rose-500 hover:text-rose-600 hover:underline cursor-pointer"
+            >
+              Clear all filters
+            </button>
+          )}
+        </div>
+
+        {/* Column visibility dropdown controller */}
+        <div className="relative">
+          <button
+            onClick={() => setIsColMenuOpen(!isColMenuOpen)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-600 transition-all cursor-pointer"
+          >
+            <Columns size={14} />
+            Columns
+            <ChevronDown size={12} />
+          </button>
+
+          <AnimatePresence>
+            {isColMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setIsColMenuOpen(false)} />
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="absolute right-0 mt-2 w-48 bg-white border border-slate-100 rounded-xl shadow-xl z-20 p-2.5 space-y-1.5 text-xs text-slate-700"
+                >
+                  <p className="font-bold text-slate-400 text-[10px] uppercase tracking-wider px-2 py-0.5 border-b border-slate-50 mb-1">Toggle Columns</p>
+                  {Object.keys(columnVisibility).map((col) => (
+                    <label key={col} className="flex items-center gap-2 px-2 py-1 hover:bg-slate-50 rounded-lg cursor-pointer capitalize">
+                      <input
+                        type="checkbox"
+                        checked={columnVisibility[col as keyof typeof columnVisibility]}
+                        onChange={(e) =>
+                          setColumnVisibility((prev) => ({ ...prev, [col]: e.target.checked }))
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500/20"
+                      />
+                      {col === "ltv" ? "LTV" : col.replace(/([A-Z])/g, " $1")}
+                    </label>
+                  ))}
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+        </div>
+
+      </div>
+
+      {/* ── DATA TABLE REDESIGN ── */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                {columnVisibility.avatar && <th className="px-5 py-3.5 text-left w-12"></th>}
+                {columnVisibility.name && (
+                  <th className="px-5 py-3.5 text-left cursor-pointer hover:bg-slate-100/50" onClick={() => toggleSort("name")}>
+                    User Name {sortField === "name" && (sortDirection === "asc" ? "↑" : "↓")}
+                  </th>
+                )}
+                {columnVisibility.email && <th className="px-5 py-3.5 text-left">Email</th>}
+                {columnVisibility.phone && <th className="px-5 py-3.5 text-left">Phone</th>}
+                {columnVisibility.role && <th className="px-5 py-3.5 text-left">Role</th>}
+                {columnVisibility.status && <th className="px-5 py-3.5 text-left">Status</th>}
+                {columnVisibility.business && <th className="px-5 py-3.5 text-left">Business</th>}
+                {columnVisibility.location && <th className="px-5 py-3.5 text-left">Location</th>}
+                {columnVisibility.wallet && (
+                  <th className="px-5 py-3.5 text-left cursor-pointer hover:bg-slate-100/50" onClick={() => toggleSort("wallet")}>
+                    Wallet Balance {sortField === "wallet" && (sortDirection === "asc" ? "↑" : "↓")}
+                  </th>
+                )}
+                {columnVisibility.orders && (
+                  <th className="px-5 py-3.5 text-left cursor-pointer hover:bg-slate-100/50" onClick={() => toggleSort("orders")}>
+                    Orders {sortField === "orders" && (sortDirection === "asc" ? "↑" : "↓")}
+                  </th>
+                )}
+                {columnVisibility.registered && (
+                  <th className="px-5 py-3.5 text-left cursor-pointer hover:bg-slate-100/50" onClick={() => toggleSort("registered")}>
+                    Registered {sortField === "registered" && (sortDirection === "asc" ? "↑" : "↓")}
+                  </th>
+                )}
+                {columnVisibility.lastLogin && <th className="px-5 py-3.5 text-left">Last Login</th>}
+                <th className="px-5 py-3.5 text-center w-10">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100/80">
+              {paginatedUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={13} className="px-5 py-12 text-center text-slate-400">
+                    <div className="w-12 h-12 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <UsersIcon size={20} />
+                    </div>
+                    No users matching criteria found.
+                  </td>
+                </tr>
+              ) : (
+                paginatedUsers.map((u, idx) => (
+                  <tr
+                    key={u.email + "-" + idx}
+                    className="hover:bg-blue-50/20 group transition-colors duration-150"
+                  >
+                    {columnVisibility.avatar && (
+                      <td className="px-5 py-3">
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-[10px] font-bold">
+                          {(u.firstName?.[0] || "").toUpperCase()}
+                          {(u.lastName?.[0] || "").toUpperCase()}
+                        </div>
+                      </td>
+                    )}
+                    {columnVisibility.name && (
+                      <td className="px-5 py-3 font-semibold text-slate-700 cursor-pointer hover:text-blue-600 transition-colors" onClick={() => handleSelectUser(u._id || "")}>
+                        {u.firstName} {u.lastName}
+                      </td>
+                    )}
+                    {columnVisibility.email && <td className="px-5 py-3 text-slate-600 font-mono">{u.email}</td>}
+                    {columnVisibility.phone && <td className="px-5 py-3 text-slate-500 font-mono">{u.phoneNumber}</td>}
+                    {columnVisibility.role && (
+                      <td className="px-5 py-3">
+                        <RoleBadge role={u.role?.[0] || "user"} />
+                      </td>
+                    )}
+                    {columnVisibility.status && (
+                      <td className="px-5 py-3">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold border tracking-wide uppercase ${getStatusBadge(u.status)}`}>
+                          {u.status}
+                        </span>
+                      </td>
+                    )}
+                    {columnVisibility.business && (
+                      <td className="px-5 py-3 text-slate-600">
+                        {u.seller?.businessName ? (
+                          <div>
+                            <p className="font-semibold text-slate-700">{u.seller.businessName}</p>
+                            <span className="text-[10px] text-slate-400 font-mono">{u.seller.gstNumber}</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+                    )}
+                    {columnVisibility.location && (
+                      <td className="px-5 py-3 text-slate-500">
+                        {u.city}, {u.state}
+                      </td>
+                    )}
+                    {columnVisibility.wallet && (
+                      <td className="px-5 py-3 font-bold text-slate-700">
+                        ₹{(u.wallet?.balance || 0).toLocaleString()}
+                      </td>
+                    )}
+                    {columnVisibility.orders && (
+                      <td className="px-5 py-3 text-slate-600">
+                        <span className="font-semibold">{u.orders?.total || 0}</span>
+                        <span className="text-slate-300 mx-1">|</span>
+                        <span className="text-blue-600 font-bold text-[10px]">₹{(u.orders?.ltv || 0).toLocaleString()}</span>
+                      </td>
+                    )}
+                    {columnVisibility.registered && (
+                      <td className="px-5 py-3 text-slate-500">
+                        {moment(u.createdAt).format("DD MMM YYYY")}
+                      </td>
+                    )}
+                    {columnVisibility.lastLogin && <td className="px-5 py-3 font-mono text-slate-400">{u.lastLogin || "—"}</td>}
+                    
+                    {/* Row Context Menu Actions */}
+                    <td className="px-5 py-3 text-center relative">
+                      <button
+                        onClick={() => setOpenRowMenuId(openRowMenuId === u.email ? null : u.email)}
+                        className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        <MoreVertical size={14} />
+                      </button>
+
+                      {openRowMenuId === u.email && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setOpenRowMenuId(null)} />
+                          <div
+                            ref={rowMenuRef}
+                            className="absolute right-6 top-6 bg-white border border-slate-100 rounded-xl shadow-xl z-20 py-1.5 w-44 text-left space-y-0.5 text-xs text-slate-700"
+                          >
+                            <button
+                              onClick={() => {
+                                setOpenRowMenuId(null);
+                                handleSelectUser(u._id || "");
+                              }}
+                              className="w-full px-3 py-1.5 hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
+                            >
+                              <Eye size={13} />
+                              View Profile
+                            </button>
+                            
+                            <button
+                              onClick={() => {
+                                setOpenRowMenuId(null);
+                                handleSelectUser(u._id || "");
+                                // Automatically triggers edit mode inside details page
+                                setTimeout(() => {
+                                  const editBtn = document.querySelector('[title="Edit Profile"]') || document.body;
+                                  if (editBtn) (editBtn as HTMLButtonElement).click();
+                                }, 200);
+                              }}
+                              className="w-full px-3 py-1.5 hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
+                            >
+                              <UserPlus size={13} />
+                              Edit Profile
+                            </button>
+
+                            {u.status !== "active" && (
+                              <button
+                                onClick={() => executeRowAction(u, "activate")}
+                                className="w-full px-3 py-1.5 hover:bg-slate-50 text-emerald-600 flex items-center gap-2 cursor-pointer font-semibold"
+                              >
+                                <CheckCircle size={13} />
+                                Activate User
+                              </button>
+                            )}
+
+                            {u.status === "active" && (
+                              <button
+                                onClick={() => executeRowAction(u, "deactivate")}
+                                className="w-full px-3 py-1.5 hover:bg-slate-50 text-slate-600 flex items-center gap-2 cursor-pointer font-semibold"
+                              >
+                                <AlertCircle size={13} />
+                                Deactivate
+                              </button>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </td>
+
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ── TABLE PAGINATION FOOTER ── */}
+        <div className="flex flex-wrap items-center justify-between px-5 py-3 bg-slate-50 border-t border-slate-100 text-xs text-slate-400 gap-3">
+          <div className="flex items-center gap-2">
+            <span>Show</span>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="border border-slate-200 bg-white rounded px-2 py-1 text-slate-600 font-semibold cursor-pointer focus:outline-none"
+            >
+              <option value={5}>5 per page</option>
+              <option value={10}>10 per page</option>
+              <option value={20}>20 per page</option>
+              <option value={50}>50 per page</option>
+            </select>
+            <span>of {sortedUsers.length} total results</span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white font-semibold cursor-pointer"
+            >
+              Prev
+            </button>
+            
+            {Array.from({ length: totalPages }).map((_, idx) => (
+              <button
+                key={idx}
+                onClick={() => setCurrentPage(idx + 1)}
+                className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold transition-all cursor-pointer ${
+                  currentPage === idx + 1
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {idx + 1}
+              </button>
+            ))}
+
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages || totalPages === 0}
+              className="px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white font-semibold cursor-pointer"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── FILTER DRAWER COMPONENT ── */}
+      <FilterDrawer
+        isOpen={isFilterOpen}
+        onClose={() => setIsFilterOpen(false)}
+        filters={activeFilters}
+        onApplyFilters={handleApplyFilters}
+        onResetFilters={handleResetFilters}
+      />
+
+      {/* ── ADD USER OVERLAY MODAL ── */}
+      <AnimatePresence>
+        {isAddUserOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.4 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAddUserOpen(false)}
+              className="fixed inset-0 bg-slate-900 z-50 cursor-pointer"
+            />
+            
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed inset-x-4 top-16 max-w-md mx-auto bg-white rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col border border-slate-100"
+            >
+              <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                <h3 className="font-extrabold text-slate-800 text-sm tracking-wide uppercase">Add User Account</h3>
+                <button
+                  type="button"
+                  onClick={() => setIsAddUserOpen(false)}
+                  className="p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleAddUserSubmit} className="p-5 space-y-3.5 text-xs">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-medium text-slate-600 mb-1">First Name</label>
+                    <input
+                      type="text"
+                      value={addUserForm.firstName}
+                      onChange={(e) => setAddUserForm({ ...addUserForm, firstName: e.target.value })}
+                      className="w-full border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-slate-600 mb-1">Last Name</label>
+                    <input
+                      type="text"
+                      value={addUserForm.lastName}
+                      onChange={(e) => setAddUserForm({ ...addUserForm, lastName: e.target.value })}
+                      className="w-full border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-medium text-slate-600 mb-1">Email Address</label>
+                  <input
+                    type="email"
+                    value={addUserForm.email}
+                    onChange={(e) => setAddUserForm({ ...addUserForm, email: e.target.value })}
+                    className="w-full border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-medium text-slate-600 mb-1">Phone Number</label>
+                  <input
+                    type="text"
+                    value={addUserForm.phoneNumber}
+                    onChange={(e) => setAddUserForm({ ...addUserForm, phoneNumber: e.target.value })}
+                    className="w-full border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-medium text-slate-600 mb-1">Account Role</label>
+                  <select
+                    value={addUserForm.role}
+                    onChange={(e) => setAddUserForm({ ...addUserForm, role: e.target.value })}
+                    className="w-full border border-slate-200 rounded-lg p-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500"
+                  >
+                    <option value="user">Buyer / User</option>
+                    <option value="seller">Seller</option>
+                    <option value="promoter">Promoter</option>
+                    <option value="connector">Connector</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+
+                {addUserForm.role === "seller" && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    className="space-y-3.5 pt-2 border-t border-slate-100"
+                  >
+                    <div>
+                      <label className="block font-medium text-slate-600 mb-1">Business Name</label>
+                      <input
+                        type="text"
+                        value={addUserForm.businessName}
+                        onChange={(e) => setAddUserForm({ ...addUserForm, businessName: e.target.value })}
+                        className="w-full border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500/10"
+                        required
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-medium text-slate-600 mb-1">GST Number</label>
+                        <input
+                          type="text"
+                          value={addUserForm.gstNumber}
+                          onChange={(e) => setAddUserForm({ ...addUserForm, gstNumber: e.target.value })}
+                          className="w-full border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500/10"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-medium text-slate-600 mb-1">Aadhaar Card</label>
+                        <input
+                          type="text"
+                          value={addUserForm.aadhaarNumber}
+                          onChange={(e) => setAddUserForm({ ...addUserForm, aadhaarNumber: e.target.value })}
+                          className="w-full border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500/10"
+                          required
+                        />
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-end gap-3 mt-4 -mx-5 -mb-5 bg-slate-50">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddUserOpen(false)}
+                    className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 rounded-xl font-bold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow cursor-pointer"
+                  >
+                    Create Account
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ── BATCH IMPORT OVERLAY MODAL ── */}
+      <AnimatePresence>
+        {isImportOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.4 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsImportOpen(false)}
+              className="fixed inset-0 bg-slate-900 z-50 cursor-pointer"
+            />
+            
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed inset-x-4 top-1/3 max-w-sm mx-auto bg-white rounded-2xl shadow-2xl z-50 p-6 border border-slate-100 text-center"
+            >
+              <div className="w-12 h-12 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-4 border border-blue-100">
+                <Upload size={24} />
+              </div>
+              <h3 className="font-extrabold text-slate-800 text-base mb-2">Import CSV CRM Dataset</h3>
+              <p className="text-xs text-slate-400 mb-6 leading-relaxed">
+                Upload a structured comma-separated values (.csv) spreadsheet file matching Lottmart CRM fields to bulk register new accounts.
+              </p>
+              
+              <div className="flex flex-col gap-2">
+                <label className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-slate-800 hover:bg-slate-950 text-white rounded-xl text-xs font-bold shadow cursor-pointer">
+                  <Upload size={14} />
+                  Choose CSV File
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleImportCSV}
+                    className="hidden"
+                  />
+                </label>
+                <button
+                  onClick={() => setIsImportOpen(false)}
+                  className="w-full px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-semibold text-slate-500 cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 };

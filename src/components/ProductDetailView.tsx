@@ -1,10 +1,26 @@
 import React, { useState } from "react";
+import moment from "moment";
 import { RequestType } from "../pages/Approvals";
+import { Modal } from "./ImageModal";
+
+// Reusable Components Imports
+import ApprovalSummaryCard from "./ApprovalSummaryCard";
+import ProductGallery from "./ProductGallery";
+import PriceCard from "./PriceCard";
+import InventoryCard from "./InventoryCard";
+import LotInformationCard from "./LotInformationCard";
+import ManufacturingCard from "./ManufacturingCard";
+import SellerCard from "./SellerCard";
+import DocumentsCard from "./DocumentsCard";
+import TimelineCard from "./TimelineCard";
+import ApprovalActions from "./ApprovalActions";
+
+import { FiArrowLeft } from "react-icons/fi";
 
 interface ProductDetailViewProps {
   req: any;
   onBack: () => void;
-  handleSubmit: (request: any, actionType: RequestType, fees?: any) => Promise<void>;
+  handleSubmit: (request: any, actionType: RequestType, fees?: any, rejectionOrChangesData?: any) => Promise<void>;
   loading: boolean;
 }
 
@@ -16,33 +32,191 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 }) => {
   const product = req?.metadata || {};
   const master = product.masterDetails || {};
-  
-  // Media handling
-  const mediaList = master.media || ["/placeholder-product.png"];
-  const [selectedImage, setSelectedImage] = useState(mediaList[0]);
-  const [zoomActive, setZoomActive] = useState(false);
+  const mediaList = master.media || product.media || [];
 
-  // Rejection/Approval states
-  const [showRejectInput, setShowRejectInput] = useState(false);
-  const [rejectReason, setRejectReason] = useState("");
-  const [showApproveFees, setShowApproveFees] = useState(false);
+  // Modals visibility states
+  const [showApproveModal, setShowApproveModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [showChangesModal, setShowChangesModal] = useState(false);
+
+  // Form input states
+  const [error, setError] = useState("");
   const [fees, setFees] = useState({
     messengerFee: "",
     connectorFee: "",
     platformFee: "3", // default 3%
   });
-  const [error, setError] = useState("");
 
-  const handleApproveClick = () => {
-    setShowRejectInput(false);
-    setShowApproveFees(true);
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejectDescription, setRejectDescription] = useState("");
+  const [rejectAttachment, setRejectAttachment] = useState("");
+
+  const [changesComment, setChangesComment] = useState("");
+  const [selectedMissingFields, setSelectedMissingFields] = useState<string[]>([]);
+  const [selectedRequiredDocs, setSelectedRequiredDocs] = useState<string[]>([]);
+
+  // Pre-configured validation options for checkboxes
+  const validationFields = [
+    "Product Description",
+    "HSN Code",
+    "Barcode",
+    "Lot Weight / Dimensions",
+    "Expiry Date",
+    "Manufacturing Date",
+    "Short Description",
+    "Seller SKU",
+  ];
+
+  const validationDocs = [
+    "GST Identification Certificate",
+    "PAN Card Copy",
+    "Trade License Document",
+    "FSSAI License Certificate",
+    "Drug License",
+    "Import License Certificate",
+    "Manufacturing Certificate",
+    "Expiry Label Image",
+  ];
+
+  // Automated Verification Checks
+  const runValidationCheck = () => {
+    const checks: { type: "error" | "warning"; message: string }[] = [];
+
+    // 1. Missing Images
+    if (mediaList.length === 0) {
+      checks.push({ type: "error", message: "Missing Images: Upload at least one media asset." });
+    }
+
+    // 2. Missing Description
+    const desc = product.description || master.description;
+    if (!desc || desc.trim().length < 10) {
+      checks.push({ type: "warning", message: "Missing Description: Listing details are incomplete." });
+    }
+
+    // 3. Expired Product
+    const expiryDateVal = product.expiryDate || product.expiry || product.expirationDate;
+    if (expiryDateVal) {
+      const exp = moment(expiryDateVal);
+      if (exp.isValid() && exp.isBefore(moment())) {
+        checks.push({ type: "error", message: "Expired Product: Product expiration date has passed." });
+      }
+    }
+
+    // 4. Invalid MRP
+    const mrpVal = Number(product.mrp);
+    const sellPriceVal = Number(product.sellingPrice);
+    if (isNaN(mrpVal) || mrpVal <= 0) {
+      checks.push({ type: "error", message: "Invalid MRP: List price must be greater than zero." });
+    } else if (sellPriceVal > mrpVal) {
+      checks.push({ type: "error", message: "Invalid MRP: Selling price cannot exceed MRP." });
+    }
+
+    // 5. Zero Stock
+    const stockVal = Number(product.stock !== undefined ? product.stock : product.currentStock);
+    if (isNaN(stockVal) || stockVal <= 0) {
+      checks.push({ type: "error", message: "Zero Stock: Available stock lots must be positive." });
+    }
+
+    // 6. Missing Documents
+    const sellerDetails = product.sellerDetails || req.sellerDetails || req.seller || {};
+    const hasGst = product.gstNumber || sellerDetails.gstNumber || sellerDetails.gst;
+    const hasPan = sellerDetails.pan || sellerDetails.panNumber;
+    if (!hasGst) {
+      checks.push({ type: "error", message: "Missing Documents: GST registration has not been verified." });
+    }
+    if (!hasPan) {
+      checks.push({ type: "error", message: "Missing Documents: PAN registration has not been verified." });
+    }
+
+    return checks;
   };
 
-  const handleRejectClick = () => {
-    setShowApproveFees(false);
-    setShowRejectInput(true);
+  const validationAlerts = runValidationCheck();
+
+  // Compute Risk Level dynamically
+  const getRiskLevel = (): "Low" | "Medium" | "High" | "Critical" => {
+    const errorCount = validationAlerts.filter((c) => c.type === "error").length;
+    const warningCount = validationAlerts.filter((c) => c.type === "warning").length;
+
+    // Check critical blockers
+    const isExpired = validationAlerts.some((c) => c.message.includes("Expired Product"));
+    const isInvalidPricing = validationAlerts.some((c) => c.message.includes("Invalid MRP"));
+
+    if (isExpired || isInvalidPricing || errorCount >= 3) return "Critical";
+    if (errorCount > 0) return "High";
+    if (warningCount > 0) return "Medium";
+    return "Low";
   };
 
+  const riskLevel = getRiskLevel();
+
+  // Dynamic Product Specifications Table
+  const getSpecifications = () => {
+    const specs: { label: string; value: string }[] = [];
+
+    const specKeys = [
+      { key: "color", label: "Color" },
+      { key: "material", label: "Material" },
+      { key: "size", label: "Size" },
+      { key: "weight", label: "Weight" },
+      { key: "origin", label: "Country of Origin" },
+      { key: "ingredients", label: "Ingredients" },
+      { key: "fragrance", label: "Fragrance" },
+      { key: "packaging", label: "Packaging Type" },
+      { key: "hsnCode", label: "HSN Code" },
+      { key: "barcode", label: "Barcode (UPC/EAN)" },
+      { key: "shortDescription", label: "Short Description" },
+      { key: "sellerSku", label: "Seller SKU" },
+      { key: "manufacturer", label: "Manufacturer" },
+    ];
+
+    specKeys.forEach(({ key, label }) => {
+      const val = product[key] !== undefined ? product[key] : master[key];
+      if (val !== undefined && val !== null && val !== "") {
+        specs.push({ label, value: String(val) });
+      }
+    });
+
+    const explicitSpecs = product.specifications || product.specs || master.specifications || master.specs;
+    if (explicitSpecs && typeof explicitSpecs === "object") {
+      Object.entries(explicitSpecs).forEach(([k, val]) => {
+        if (typeof val === "string" || typeof val === "number" || typeof val === "boolean") {
+          const labelName = k.replace(/([A-Z])/g, " $1").replace(/_/g, " ").trim();
+          const capitalized = labelName.charAt(0).toUpperCase() + labelName.slice(1);
+          if (!specs.some((s) => s.label.toLowerCase() === capitalized.toLowerCase())) {
+            specs.push({ label: capitalized, value: String(val) });
+          }
+        }
+      });
+    }
+
+    return specs;
+  };
+
+  const specifications = getSpecifications();
+
+  // General Information Fields Check
+  const getGeneralInfo = () => {
+    const info = [
+      { label: "Product Name", value: master.name || product.name || "Not Available" },
+      { label: "Master Product SKU", value: master.skuCode || product.skuCode || "Not Available" },
+      { label: "Seller SKU", value: product.sellerSku || "Not Available" },
+      { label: "Brand", value: product.brandName || master.brand || "Not Available" },
+      { label: "Manufacturer", value: product.manufacturer || master.manufacturer || "Not Available" },
+      { label: "Category", value: master.categoryId?.name || product.categoryName || "Not Available" },
+      { label: "Sub Category", value: product.subCategory || master.subCategory || "Not Available" },
+      { label: "Product Sub Category", value: product.productSubCategory || master.productSubCategory || "Not Available" },
+      { label: "HSN Code", value: product.hsnCode || "Not Available" },
+      { label: "Barcode (UPC/EAN)", value: product.barcode || "Not Available" },
+      { label: "Product Description", value: product.description || master.description || "Not Available", fullWidth: true },
+      { label: "Short Description", value: product.shortDescription || "Not Available", fullWidth: true },
+    ];
+    return info;
+  };
+
+  const generalInfo = getGeneralInfo();
+
+  // Decision submits
   const submitApproval = async () => {
     setError("");
     const m = parseInt(fees.messengerFee);
@@ -60,414 +234,446 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       platformFee: p,
     };
 
-    // Call handleSubmit with custom fees injection
-    // To match handleSubmit in Approvals.tsx, we pass the custom fees state so Approvals.tsx can use it
-    // Wait! handleSubmit in Approvals.tsx uses a state `fees` defined in Approvals.tsx.
-    // If we pass the fees as third argument, how does it process?
-    // Let's look at Approvals.tsx handleSubmit:
-    //   const handleSubmit = async (request: any, requestType: RequestType) => { ... }
-    // It reads from the `fees` state *within* Approvals.tsx.
-    // So we need to make sure that our page controller's handleSubmit can accept fees or that we update Approvals.tsx accordingly.
-    // That's perfect, we will update Approvals.tsx to take fees as an argument or update its internal fees state!
-    // Yes! Let's pass the fees in the callback.
     await handleSubmit(req, "accept", payloadFees);
+    setShowApproveModal(false);
   };
 
   const submitRejection = async () => {
+    setError("");
     if (!rejectReason.trim()) {
-      setError("Please provide a reason for rejection.");
+      setError("Please specify a rejection reason.");
       return;
     }
-    // For rejection, we call handleSubmit with "reject"
-    await handleSubmit(req, "reject");
+
+    const payload = {
+      reason: rejectReason,
+      comment: rejectDescription,
+      commentAttachment: rejectAttachment,
+    };
+
+    await handleSubmit(req, "reject", null, payload);
+    setShowRejectModal(false);
   };
 
-  const discountPercent = product.mrp && product.sellingPrice 
-    ? Math.round(((product.mrp - product.sellingPrice) / product.mrp) * 100)
-    : 0;
+  const submitRequestChanges = async () => {
+    setError("");
+    if (!changesComment.trim()) {
+      setError("Please provide change request comments.");
+      return;
+    }
+
+    const payload = {
+      reason: "Request Changes",
+      comment: changesComment,
+      missingFields: selectedMissingFields,
+      requiredDocuments: selectedRequiredDocs,
+    };
+
+    await handleSubmit(req, "reject", null, payload);
+    setShowChangesModal(false);
+  };
+
+  const handleDownloadAllDocs = () => {
+    const urls: string[] = [];
+    const scanUrls = (obj: any) => {
+      if (!obj || typeof obj !== "object") return;
+      for (const [, val] of Object.entries(obj)) {
+        if (typeof val === "string" && (val.startsWith("http://") || val.startsWith("https://"))) {
+          if (/\.(pdf|png|jpg|jpeg)$/i.test(val.split("?")[0])) {
+            urls.push(val);
+          }
+        } else if (typeof val === "object") {
+          scanUrls(val);
+        }
+      }
+    };
+    scanUrls(product);
+    scanUrls(req.seller);
+
+    if (urls.length === 0) {
+      alert("No downloadable files found on this request.");
+      return;
+    }
+
+    urls.forEach((url, index) => {
+      setTimeout(() => {
+        const a = document.createElement("a");
+        a.href = url;
+        a.target = "_blank";
+        a.download = `Document_${index + 1}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }, index * 400);
+    });
+  };
+
+  const handleCheckboxToggle = (list: string[], setList: React.Dispatch<React.SetStateAction<string[]>>, item: string) => {
+    if (list.includes(item)) {
+      setList(list.filter((x) => x !== item));
+    } else {
+      setList([...list, item]);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50/50 pb-32">
-      {/* Top sticky header */}
+    <div className="min-h-screen bg-slate-50/50 pb-20 animate-in fade-in duration-300">
+      {/* Dynamic Header */}
       <div className="sticky top-0 z-40 flex items-center justify-between border-b border-slate-200/80 bg-white/95 px-6 py-4 backdrop-blur-md">
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            className="group flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+            className="group flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-650 transition hover:bg-slate-50 hover:text-slate-900 shadow-sm cursor-pointer"
           >
-            <svg
-              className="h-5 w-5 transition-transform group-hover:-translate-x-0.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M10 19l-7-7m0 0l7-7m-7 7h18"
-              />
-            </svg>
+            <FiArrowLeft className="transition-transform group-hover:-translate-x-0.5" size={16} />
           </button>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Approvals Queue
+              <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">
+                Approvals Portal
               </span>
-              <span className="h-1 w-1 rounded-full bg-slate-300" />
-              <span className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-inset ring-amber-600/10">
-                Pending Product
+              <span className="h-1 w-1 rounded-full bg-slate-350" />
+              <span className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-800 border border-amber-200/40">
+                Pending Product Listing
               </span>
             </div>
-            <h1 className="text-xl font-bold text-slate-900">
-              {master.name || "Product Request Details"}
+            <h1 className="text-lg font-black text-slate-900 tracking-tight mt-0.5">
+              {master.name || "Product Workspace"}
             </h1>
           </div>
         </div>
-
-        <div className="flex gap-2">
-          <button
-            onClick={handleRejectClick}
-            disabled={loading}
-            className="inline-flex items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-50 cursor-pointer"
-          >
-            Reject Request
-          </button>
-          <button
-            onClick={handleApproveClick}
-            disabled={loading}
-            className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
-          >
-            Approve...
-          </button>
-        </div>
       </div>
 
-      {/* Main Grid Content */}
-      <div className="mx-auto max-w-7xl px-6 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left Column: Visual Assets & Documents */}
-          <div className="lg:col-span-1 space-y-8">
-            {/* Image Gallery Card */}
-            <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
-              <h3 className="text-sm font-bold text-slate-900 mb-4">Product Images</h3>
+      <div className="mx-auto max-w-7xl px-6 py-8 space-y-6">
+        {/* Full-width Summary banner */}
+        <ApprovalSummaryCard req={req} validations={validationAlerts} riskLevel={riskLevel} />
+
+        {/* 2-column workspace layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+          
+          {/* Main content column (left 70%) */}
+          <div className="lg:col-span-2 space-y-6">
+            
+            {/* Visual Assets Gallery */}
+            <ProductGallery media={mediaList} />
+
+            {/* General Information Card */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+              <h2 className="text-md font-bold text-slate-800 mb-5 pb-3 border-b border-slate-100 flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-indigo-500" />
+                General Product Information
+              </h2>
               
-              <div 
-                className="relative aspect-square overflow-hidden rounded-xl bg-slate-100 border border-slate-100 cursor-zoom-in"
-                onClick={() => setZoomActive(!zoomActive)}
-              >
-                <img
-                  src={selectedImage}
-                  alt={master.name || "Product Image"}
-                  className={`h-full w-full object-contain transition-transform duration-300 ${
-                    zoomActive ? "scale-150" : "scale-100"
-                  }`}
-                />
-                <div className="absolute right-3 bottom-3 rounded-lg bg-black/60 px-2 py-1 text-2xs text-white backdrop-blur-xs">
-                  {zoomActive ? "Click to Zoom Out" : "Click to Zoom In"}
-                </div>
-              </div>
-
-              {mediaList.length > 1 && (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {mediaList.map((imgUrl: string, idx: number) => (
-                    <button
-                      key={idx}
-                      onClick={() => setSelectedImage(imgUrl)}
-                      className={`h-16 w-16 overflow-hidden rounded-lg border-2 bg-slate-50 transition ${
-                        selectedImage === imgUrl ? "border-slate-900" : "border-transparent opacity-70 hover:opacity-100"
-                      }`}
-                    >
-                      <img src={imgUrl} className="h-full w-full object-contain" alt="thumbnail" />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Verification Documents Card */}
-            <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold text-slate-900">Verification Documents</h3>
-                <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/10">
-                  Ready to Verify
-                </span>
-              </div>
-
-              <div className="space-y-3">
-                {[
-                  { name: "GST Certificate", format: "PDF", size: "2.4 MB" },
-                  { name: "PAN Card Copy", format: "PNG", size: "1.1 MB" },
-                  { name: "Trade License", format: "PDF", size: "3.7 MB" },
-                ].map((doc, idx) => (
-                  <div
-                    key={idx}
-                    className="group flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/50 p-3 transition hover:border-slate-200 hover:bg-slate-50"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white border border-slate-200 text-slate-500 font-bold text-xs">
-                        {doc.format}
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold text-slate-800">{doc.name}</p>
-                        <p className="text-2xs text-slate-500">{doc.size}</p>
-                      </div>
-                    </div>
-                    <button className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-slate-900 border border-transparent hover:border-slate-200 transition cursor-pointer">
-                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                    </button>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-6">
+                {generalInfo.map((field, idx) => (
+                  <div key={idx} className={field.fullWidth ? "md:col-span-2" : ""}>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
+                      {field.label}
+                    </span>
+                    {field.fullWidth ? (
+                      <p className="text-xs text-slate-650 leading-relaxed bg-slate-50/50 rounded-xl p-3 border border-slate-100">
+                        {field.value}
+                      </p>
+                    ) : (
+                      <span className="text-xs font-semibold text-slate-700 block truncate" title={String(field.value)}>
+                        {field.value}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
             </div>
+
+            {/* Pricing Details */}
+            <PriceCard product={product} />
+
+            {/* Inventory Levels */}
+            <InventoryCard product={product} />
+
+            {/* Lot Information */}
+            <LotInformationCard product={product} />
+
+            {/* Manufacturing Card */}
+            <ManufacturingCard product={product} />
+
+            {/* Dynamic Product Specifications Card */}
+            {specifications.length > 0 && (
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                <h2 className="text-md font-bold text-slate-800 mb-4 pb-3 border-b border-slate-100 flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+                  Product Specifications & Attributes
+                </h2>
+                <div className="overflow-hidden border border-slate-150 rounded-xl">
+                  <table className="min-w-full divide-y divide-slate-150 text-xs">
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {specifications.map((spec, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/30">
+                          <td className="px-5 py-3 font-bold text-slate-400 uppercase tracking-wider w-1/3 bg-slate-50/30">
+                            {spec.label}
+                          </td>
+                          <td className="px-5 py-3 font-semibold text-slate-700">
+                            {spec.value}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Seller Information */}
+            <SellerCard req={req} />
+
+            {/* Verification Documents */}
+            <DocumentsCard product={product} req={req} />
+
+            {/* Audit Timeline logs */}
+            <TimelineCard product={product} req={req} />
+
           </div>
 
-          {/* Right Column: Information Grids */}
-          <div className="lg:col-span-2 space-y-8">
-            
-            {/* Section 1: Product Information */}
-            <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-xs">
-              <h2 className="text-md font-bold text-slate-900 mb-5 pb-3 border-b border-slate-100 flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-slate-800" />
-                Product Information
-              </h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-y-5 gap-x-6">
-                <div>
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">Product Name</span>
-                  <span className="text-sm font-medium text-slate-800 block">{master.name || "N/A"}</span>
-                </div>
-                <div>
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">Master Product SKU</span>
-                  <span className="text-sm font-mono text-slate-800 bg-slate-50 px-2 py-0.5 rounded border border-slate-100 inline-block">{req._id}</span>
-                </div>
-                <div>
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">Category</span>
-                  <span className="text-sm font-medium text-slate-800 block">{master.categoryId?.name || "N/A"}</span>
-                </div>
-                <div>
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">Brand / Manufacturer</span>
-                  <span className="text-sm font-medium text-slate-800 block">{product.brandName || "Lottmart Direct"}</span>
-                </div>
-                <div className="md:col-span-2">
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">Product Description</span>
-                  <p className="text-xs text-slate-600 leading-relaxed bg-slate-50/50 rounded-xl p-3 border border-slate-100/50">{product.description || "No description provided."}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Section 2: Pricing details */}
-            <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-xs">
-              <h2 className="text-md font-bold text-slate-900 mb-5 pb-3 border-b border-slate-100 flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-indigo-500" />
-                Pricing Details
-              </h2>
-              
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                <div className="bg-slate-50/50 rounded-xl p-4 border border-slate-100">
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">MRP</span>
-                  <span className="text-xl font-bold text-slate-800">₹{product.mrp || 0}</span>
-                </div>
-                <div className="bg-slate-50/50 rounded-xl p-4 border border-slate-100">
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">Selling Price</span>
-                  <span className="text-xl font-bold text-slate-800">₹{product.sellingPrice || 0}</span>
-                </div>
-                <div className="bg-indigo-50/30 rounded-xl p-4 border border-indigo-100/50">
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-indigo-500 block mb-1">Discount</span>
-                  <span className="text-xl font-bold text-indigo-700">{discountPercent}% Off</span>
-                </div>
-                <div className="bg-emerald-50/30 rounded-xl p-4 border border-emerald-100/50">
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-emerald-500 block mb-1">Lot Price</span>
-                  <span className="text-xl font-bold text-emerald-700">₹{(product.sellingPrice || 0) * (product.lotSize || 1)}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Section 3: Inventory details */}
-            <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-xs">
-              <h2 className="text-md font-bold text-slate-900 mb-5 pb-3 border-b border-slate-100 flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                Inventory & Logistics
-              </h2>
-              
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                <div>
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">Lot Size</span>
-                  <span className="text-sm font-semibold text-slate-800">{product.lotSize || 1} units / lot</span>
-                </div>
-                <div>
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">Min Order Qty (MOQ)</span>
-                  <span className="text-sm font-semibold text-slate-800">{product.moq || 1} lots</span>
-                </div>
-                <div>
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">Current Stock</span>
-                  <span className="text-sm font-semibold text-slate-800">{product.stock || 0} lots available</span>
-                </div>
-                <div>
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">Mfg Date</span>
-                  <span className="text-sm font-medium text-slate-700">{product.mfgDate ? new Date(product.mfgDate).toLocaleDateString() : "N/A"}</span>
-                </div>
-                <div>
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">Expiry Date</span>
-                  <span className="text-sm font-medium text-slate-700">{product.expiryDate ? new Date(product.expiryDate).toLocaleDateString() : "N/A"}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Section 4: Seller Info */}
-            <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-xs">
-              <h2 className="text-md font-bold text-slate-900 mb-5 pb-3 border-b border-slate-100 flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-sky-500" />
-                Seller Information
-              </h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-y-5 gap-x-6">
-                <div>
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">Business Name</span>
-                  <span className="text-sm font-bold text-slate-800">{req.firstName} {req.lastName}</span>
-                </div>
-                <div>
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">Email ID</span>
-                  <span className="text-sm font-medium text-slate-800">{req.email || "N/A"}</span>
-                </div>
-                <div>
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">GST Registration</span>
-                  <span className="text-sm font-mono text-slate-800">{product.gstNumber || "N/A"}</span>
-                </div>
-                <div>
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">Verification Status</span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2 py-1 text-2xs font-medium text-blue-700 border border-blue-100 mt-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
-                    Pending Verification
-                  </span>
-                </div>
-              </div>
-            </div>
-
+          {/* Sticky Sidebar controller (right 30%) */}
+          <div className="lg:col-span-1">
+            <ApprovalActions
+              status={req.status}
+              onApprove={() => setShowApproveModal(true)}
+              onReject={() => setShowRejectModal(true)}
+              onRequestChanges={() => setShowChangesModal(true)}
+              onViewSeller={() => alert("Redirecting to Seller KYC Details...")}
+              onDownloadDocuments={handleDownloadAllDocs}
+              loading={loading}
+              validationCount={validationAlerts.filter((c) => c.type === "error").length}
+            />
           </div>
         </div>
       </div>
 
-      {/* Sticky Bottom Action Bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 px-6 py-4 shadow-xl backdrop-blur-md transition-all duration-300">
-        <div className="mx-auto max-w-7xl">
-          {error && (
-            <div className="mb-3 rounded-lg bg-rose-50 border border-rose-100 px-4 py-2.5 text-xs font-semibold text-rose-700">
-              {error}
-            </div>
-          )}
+      {/* APPROVAL COMMISSION MODAL */}
+      {showApproveModal && (
+        <Modal onClose={() => setShowApproveModal(false)}>
+          <div className="w-[450px] max-w-full space-y-4">
+            <h3 className="text-sm font-black text-slate-900 tracking-tight border-b border-slate-100 pb-3 flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              Approve Listing & Set Margins
+            </h3>
 
-          {/* Expanded input states for approval commission/rejection reason */}
-          {showApproveFees && (
-            <div className="mb-4 rounded-xl border border-slate-100 bg-slate-50 p-4 animate-in fade-in slide-in-from-bottom-2 duration-200">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-3">Set Commission Commissions & Platform Fees</h4>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="text-2xs font-semibold text-slate-500 uppercase block mb-1">Messenger Commission (%)</label>
-                  <input
-                    type="number"
-                    placeholder="Messenger Commission"
-                    value={fees.messengerFee}
-                    onChange={(e) => setFees({ ...fees, messengerFee: e.target.value })}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-400"
-                  />
+            {error && (
+              <div className="p-2.5 bg-rose-50 text-rose-700 border border-rose-100 rounded-lg text-xs font-bold">
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Messenger Commission (%)</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 5"
+                  value={fees.messengerFee}
+                  onChange={(e) => setFees({ ...fees, messengerFee: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs focus:bg-white focus:border-slate-400 outline-none transition"
+                />
+              </div>
+              
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Connector Commission (%)</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 3"
+                  value={fees.connectorFee}
+                  onChange={(e) => setFees({ ...fees, connectorFee: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs focus:bg-white focus:border-slate-400 outline-none transition"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Platform Margin / Fee (%)</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 3"
+                  value={fees.platformFee}
+                  onChange={(e) => setFees({ ...fees, platformFee: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs focus:bg-white focus:border-slate-400 outline-none transition"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-3 border-t border-slate-100 justify-end">
+              <button
+                onClick={() => setShowApproveModal(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-650 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 cursor-pointer transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitApproval}
+                disabled={loading}
+                className="px-5 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs cursor-pointer transition disabled:opacity-50"
+              >
+                Complete Approval
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* REJECTION WORKFLOW MODAL */}
+      {showRejectModal && (
+        <Modal onClose={() => setShowRejectModal(false)}>
+          <div className="w-[480px] max-w-full space-y-4">
+            <h3 className="text-sm font-black text-slate-900 tracking-tight border-b border-slate-100 pb-3 flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-rose-500 animate-pulse" />
+              Reject Listing Request
+            </h3>
+
+            {error && (
+              <div className="p-2.5 bg-rose-50 text-rose-700 border border-rose-100 rounded-lg text-xs font-bold">
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Rejection Reason</label>
+                <select
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs focus:bg-white focus:border-slate-400 outline-none transition cursor-pointer"
+                >
+                  <option value="">Select rejection reason...</option>
+                  <option value="Pricing mismatch">Pricing / MRP mismatch</option>
+                  <option value="Poor image quality">Poor image quality / watermarked</option>
+                  <option value="Regulatory license expired">Regulatory license expired</option>
+                  <option value="Incomplete document upload">Incomplete document upload</option>
+                  <option value="Other">Other (specify below)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Detailed Description</label>
+                <textarea
+                  placeholder="Explain exactly why the listing is being rejected..."
+                  rows={3}
+                  value={rejectDescription}
+                  onChange={(e) => setRejectDescription(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs focus:bg-white focus:border-slate-400 outline-none transition"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Attachment (Optional File Url)</label>
+                <input
+                  type="text"
+                  placeholder="https://example.com/audit-report.pdf"
+                  value={rejectAttachment}
+                  onChange={(e) => setRejectAttachment(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs focus:bg-white focus:border-slate-400 outline-none transition"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-3 border-t border-slate-100 justify-end">
+              <button
+                onClick={() => setShowRejectModal(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-650 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 cursor-pointer transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitRejection}
+                disabled={loading}
+                className="px-5 py-2.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs cursor-pointer transition disabled:opacity-50"
+              >
+                Reject Listing
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* REQUEST CHANGES MODAL */}
+      {showChangesModal && (
+        <Modal onClose={() => setShowChangesModal(false)}>
+          <div className="w-[520px] max-w-full space-y-4">
+            <h3 className="text-sm font-black text-slate-900 tracking-tight border-b border-slate-100 pb-3 flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500 animate-pulse" />
+              Request Information Changes
+            </h3>
+
+            {error && (
+              <div className="p-2.5 bg-rose-50 text-rose-700 border border-rose-100 rounded-lg text-xs font-bold">
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1.5">Feedback / Comments</label>
+                <textarea
+                  placeholder="Specify clear instructions for the seller to rectify..."
+                  rows={2.5}
+                  value={changesComment}
+                  onChange={(e) => setChangesComment(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs focus:bg-white focus:border-slate-400 outline-none transition"
+                />
+              </div>
+
+              {/* Missing Fields Checklist */}
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-2">Check Missing Fields to Rectify</label>
+                <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100 text-2xs">
+                  {validationFields.map((field) => (
+                    <label key={field} className="flex items-center gap-2 text-slate-700 font-semibold cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={selectedMissingFields.includes(field)}
+                        onChange={() => handleCheckboxToggle(selectedMissingFields, setSelectedMissingFields, field)}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>{field}</span>
+                    </label>
+                  ))}
                 </div>
-                <div>
-                  <label className="text-2xs font-semibold text-slate-500 uppercase block mb-1">Connector Commission (%)</label>
-                  <input
-                    type="number"
-                    placeholder="Connector Commission"
-                    value={fees.connectorFee}
-                    onChange={(e) => setFees({ ...fees, connectorFee: e.target.value })}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-400"
-                  />
-                </div>
-                <div>
-                  <label className="text-2xs font-semibold text-slate-500 uppercase block mb-1">Platform Margin (%)</label>
-                  <input
-                    type="number"
-                    placeholder="Platform Margin"
-                    value={fees.platformFee}
-                    onChange={(e) => setFees({ ...fees, platformFee: e.target.value })}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-400"
-                  />
+              </div>
+
+              {/* Required Documents Checklist */}
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-2">Check Required Documents to Upload</label>
+                <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100 text-2xs">
+                  {validationDocs.map((doc) => (
+                    <label key={doc} className="flex items-center gap-2 text-slate-700 font-semibold cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={selectedRequiredDocs.includes(doc)}
+                        onChange={() => handleCheckboxToggle(selectedRequiredDocs, setSelectedRequiredDocs, doc)}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>{doc}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
             </div>
-          )}
 
-          {showRejectInput && (
-            <div className="mb-4 rounded-xl border border-rose-100 bg-rose-50/20 p-4 animate-in fade-in slide-in-from-bottom-2 duration-200">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-rose-700 mb-2">Specify Rejection Reason</h4>
-              <textarea
-                placeholder="Enter rejection notes (this will be sent to the seller)..."
-                rows={2}
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                className="w-full rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs outline-none focus:border-rose-400 focus:ring-1 focus:ring-rose-400"
-              />
-            </div>
-          )}
-
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <span className="inline-flex h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
-              <span className="text-xs font-semibold text-slate-600">Reviewing: {master.name}</span>
-            </div>
-
-            <div className="flex gap-3 w-full sm:w-auto justify-end">
-              {(showApproveFees || showRejectInput) && (
-                <button
-                  onClick={() => {
-                    setShowApproveFees(false);
-                    setShowRejectInput(false);
-                  }}
-                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-700 bg-white transition hover:bg-slate-50 cursor-pointer"
-                >
-                  Cancel
-                </button>
-              )}
-
-              {showRejectInput ? (
-                <button
-                  onClick={submitRejection}
-                  disabled={loading}
-                  className="rounded-xl bg-rose-600 hover:bg-rose-700 px-5 py-2.5 text-xs font-bold text-white transition disabled:opacity-50 cursor-pointer"
-                >
-                  Confirm Rejection
-                </button>
-              ) : showApproveFees ? (
-                <button
-                  onClick={submitApproval}
-                  disabled={loading}
-                  className="rounded-xl bg-emerald-600 hover:bg-emerald-700 px-5 py-2.5 text-xs font-bold text-white transition disabled:opacity-50 cursor-pointer"
-                >
-                  Complete Approval
-                </button>
-              ) : (
-                <>
-                  <button
-                    onClick={handleRejectClick}
-                    disabled={loading}
-                    className="rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 px-4 py-2.5 text-xs font-bold text-rose-700 transition disabled:opacity-50 cursor-pointer"
-                  >
-                    Reject
-                  </button>
-                  <button
-                    onClick={handleApproveClick}
-                    disabled={loading}
-                    className="rounded-xl bg-slate-900 hover:bg-slate-800 px-5 py-2.5 text-xs font-bold text-white transition disabled:opacity-50 cursor-pointer"
-                  >
-                    Approve
-                  </button>
-                </>
-              )}
+            <div className="flex gap-2 pt-3 border-t border-slate-100 justify-end">
+              <button
+                onClick={() => setShowChangesModal(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-650 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 cursor-pointer transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitRequestChanges}
+                disabled={loading}
+                className="px-5 py-2.5 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-xl shadow-xs cursor-pointer transition disabled:opacity-50"
+              >
+                Send Request to Seller
+              </button>
             </div>
           </div>
-        </div>
-      </div>
+        </Modal>
+      )}
     </div>
   );
 };

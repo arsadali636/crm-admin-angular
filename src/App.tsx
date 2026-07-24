@@ -13,6 +13,7 @@ import { OrderList } from "./pages/OrderList";
 import { Banner } from "./pages/Banner";
 import { OrderDetail } from "./pages/OrderDetail";
 import Dashboard from "./pages/Dashboard";
+import NotificationCenter from "./pages/NotificationCenter";
 
 // Wallet Pages
 import { WalletDashboard } from "./pages/WalletDashboard";
@@ -35,6 +36,15 @@ const App = () => (
           element={
             <ProtectRoute>
               <Dashboard />
+            </ProtectRoute>
+          }
+        />
+
+        <Route
+          path="/notifications"
+          element={
+            <ProtectRoute>
+              <NotificationCenter />
             </ProtectRoute>
           }
         />

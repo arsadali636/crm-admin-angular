@@ -104,7 +104,13 @@ export const Approvals = () => {
   const handleSubmit = async (
     request: any,
     requestType: RequestType,
-    customFees?: any
+    customFees?: any,
+    rejectionOrChangesData?: {
+      reason?: string;
+      comment?: string;
+      missingFields?: string[];
+      requiredDocuments?: string[];
+    }
   ) => {
     const selectedRequest = request || activeDetail;
     let data: any = {
@@ -128,6 +134,11 @@ export const Approvals = () => {
         connectorCommission: c,
         platformFee: p || 3,
       };
+    } else if (rejectionOrChangesData) {
+      data["reason"] = rejectionOrChangesData.reason || "";
+      data["comment"] = rejectionOrChangesData.comment || "";
+      data["missingFields"] = rejectionOrChangesData.missingFields || [];
+      data["requiredDocuments"] = rejectionOrChangesData.requiredDocuments || [];
     }
     try {
       setLoading(true);

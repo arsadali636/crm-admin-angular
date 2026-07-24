@@ -15,9 +15,11 @@ import {
   FaFileInvoiceDollar,
   FaChartBar,
   FaSlidersH,
+  FaBell,
 } from "react-icons/fa";
 import { FiMenu, FiLogOut } from "react-icons/fi";
 import { FaShop } from "react-icons/fa6";
+import { STATIC_NOTIFICATIONS } from "../constants/staticNotifications";
 
 export const ProtectRoute = ({ children }: { children: React.ReactNode }) => {
   const token = localStorage.getItem("user");
@@ -25,6 +27,7 @@ export const ProtectRoute = ({ children }: { children: React.ReactNode }) => {
   const [isOpen, setIsOpen] = useState(true);
   const navigate = useNavigate();
   const [openMenu, setOpenMenu] = useState(false);
+  const [openNotifications, setOpenNotifications] = useState(false);
 
   if (!token) {
     return <Navigate to="/" />;
@@ -50,6 +53,7 @@ export const ProtectRoute = ({ children }: { children: React.ReactNode }) => {
 
     { path: "/orders", label: "Orders", icon: <FaShop /> },
     { path: "/banners", label: "Banners", icon: <FaImage /> },
+    { path: "/notifications", label: "Notifications", icon: <FaBell /> },
 
     // Wallet Module Header
     { isHeader: true, label: "Wallet Module" },
@@ -220,10 +224,110 @@ export const ProtectRoute = ({ children }: { children: React.ReactNode }) => {
           <div className="flex items-center gap-6">
             <div className="h-8 w-px bg-slate-200 hidden sm:block"></div>
             
+            {/* Notification Bell */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setOpenNotifications(!openNotifications);
+                  setOpenMenu(false);
+                }}
+                className="relative p-2.5 rounded-xl bg-slate-50 text-slate-500 hover:text-blue-600 hover:bg-blue-50/50 transition-all duration-200 cursor-pointer flex items-center justify-center border border-slate-100"
+                title="Notifications"
+              >
+                <FaBell size={18} />
+                <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white ring-2 ring-white animate-pulse">
+                  5
+                </span>
+              </button>
+
+              {openNotifications && (
+                <div className="absolute right-0 mt-3 w-96 bg-white border border-slate-100 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                  {/* Header */}
+                  <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-slate-50/50">
+                    <div>
+                      <h3 className="font-bold text-slate-800 text-sm">Recent Alerts</h3>
+                      <p className="text-[11px] text-slate-400 font-medium">You have 5 unread alerts</p>
+                    </div>
+                    <button
+                      className="text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors cursor-pointer"
+                      onClick={() => setOpenNotifications(false)}
+                    >
+                      Mark all as read
+                    </button>
+                  </div>
+
+                  {/* Notification List */}
+                  <div className="max-h-[360px] overflow-y-auto divide-y divide-slate-50">
+                    {STATIC_NOTIFICATIONS.filter(n => n.readStatus === "unread").slice(0, 4).map((notif) => {
+                      let iconColor = "bg-blue-50 text-blue-600 border border-blue-100";
+                      let iconChar = "🔔";
+
+                      if (notif.module === "user") { iconColor = "bg-teal-50 text-teal-600 border border-teal-100"; iconChar = "👤"; }
+                      else if (notif.module === "seller") { iconColor = "bg-amber-50 text-amber-600 border border-amber-100"; iconChar = "🏪"; }
+                      else if (notif.module === "product") { iconColor = "bg-purple-50 text-purple-600 border border-purple-100"; iconChar = "📦"; }
+                      else if (notif.module === "order") { iconColor = "bg-emerald-50 text-emerald-600 border border-emerald-100"; iconChar = "🛍️"; }
+                      else if (notif.module === "wallet") { iconColor = "bg-indigo-50 text-indigo-600 border border-indigo-100"; iconChar = "💳"; }
+                      else if (notif.module === "system") { iconColor = "bg-red-50 text-red-600 border border-red-100"; iconChar = "⚠️"; }
+
+                      return (
+                        <div
+                          key={notif.id}
+                          className="p-4 hover:bg-slate-50/70 transition-colors flex gap-3.5 cursor-pointer"
+                          onClick={() => {
+                            setOpenNotifications(false);
+                            navigate("/notifications");
+                          }}
+                        >
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-semibold flex-shrink-0 ${iconColor}`}>
+                            {iconChar}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs font-bold text-slate-700 truncate">{notif.title}</p>
+                              <span className="text-[10px] text-slate-400 whitespace-nowrap">{notif.createdTime}</span>
+                            </div>
+                            <p className="text-[11px] text-slate-500 mt-1 leading-normal line-clamp-2">{notif.description}</p>
+                            {notif.entityName && (
+                              <div className="mt-1.5 flex items-center gap-1.5">
+                                <span className="text-[9px] font-semibold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-md">
+                                  {notif.module.toUpperCase()}: {notif.entityName}
+                                </span>
+                                {notif.priority === "high" && (
+                                  <span className="text-[9px] font-semibold bg-red-50 text-red-600 px-1.5 py-0.5 rounded-md">
+                                    High
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Footer Link */}
+                  <div className="border-t border-slate-100 p-3 bg-slate-50/50 flex justify-center">
+                    <button
+                      onClick={() => {
+                        setOpenNotifications(false);
+                        navigate("/notifications");
+                      }}
+                      className="text-xs font-bold text-blue-600 hover:text-blue-700 transition-colors w-full text-center py-1 cursor-pointer"
+                    >
+                      View All Activity →
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="relative">
               <div
                 className="flex items-center gap-3 cursor-pointer group"
-                onClick={() => setOpenMenu(!openMenu)}
+                onClick={() => {
+                  setOpenMenu(!openMenu);
+                  setOpenNotifications(false);
+                }}
               >
                 <div className="text-right hidden sm:block">
                   <p className="text-sm font-semibold text-slate-700 leading-none">Administrator</p>

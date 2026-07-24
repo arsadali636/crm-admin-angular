@@ -29,7 +29,7 @@ interface IMasterProduct {
   productSubCategory?: string;
   mrp: string;
   size: string;
-  images: File[] | null;
+  images: File[] | string | string[] | null;
   description: string;
 }
 
@@ -137,6 +137,7 @@ export enum AdminRequestsType {
 }
 
 export interface IUser {
+  _id?: string;
   role: string[];
   email: string;
   phoneNumber: string;
@@ -147,10 +148,47 @@ export interface IUser {
   status: string;
   seller?: {
     businessName: string;
-    address?: string; // address1 not present in seller object, only address
+    address?: string;
     aadhaarNumber: string;
     gstNumber: string;
+    pan?: string;
+    businessType?: string;
+    businessCategory?: string;
+    verificationStatus?: string;
   };
+  gender?: string;
+  dob?: string;
+  altPhone?: string;
+  state?: string;
+  city?: string;
+  district?: string;
+  pincode?: string;
+  wallet?: {
+    balance: number;
+    locked: number;
+    earnings: number;
+    withdrawals: number;
+    pendingWithdrawals: number;
+  };
+  orders?: {
+    total: number;
+    completed: number;
+    pending: number;
+    cancelled: number;
+    returns: number;
+    totalPurchase: number;
+    ltv: number;
+  };
+  promoterInfo?: {
+    referralCount: number;
+    commissionEarned: number;
+    campaignsJoined: number;
+    performance: string;
+  };
+  kycStatus?: "verified" | "unverified" | "pending";
+  lastLogin?: string;
+  notes?: { id: string; text: string; createdAt: string; createdBy: string }[];
+  auditLogs?: { action: string; changedBy: string; oldValue: string; newValue: string; timestamp: string; ip: string }[];
 }
 
 export interface OrderItem {

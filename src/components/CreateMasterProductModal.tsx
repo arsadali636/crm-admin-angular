@@ -1,11 +1,11 @@
 import { useForm, Controller } from "react-hook-form";
 import { useEffect, useState } from "react";
-import { getCompleteUrlV1, uploadImage } from "../utils";
+import { getCompleteUrlV1 } from "../utils";
 import { IMasterProduct } from "../types";
 import { httpClient } from "../services/ApiService";
 import { FormError } from "./FormError";
 import { SearchableDropdown, DropdownOption } from "./SearchableDropdown";
-import { ImageUpload } from "./ImageUpload";
+import { ProductGalleryUploader } from "./ProductGalleryUploader";
 import { FaTimes } from "react-icons/fa";
 
 const defaultValues: IMasterProduct = {
@@ -17,7 +17,7 @@ const defaultValues: IMasterProduct = {
   skuCode: "",
   mrp: "",
   size: "",
-  images: null,
+  images: [],
   description: "",
 };
 
@@ -40,6 +40,7 @@ export function CreateMasterProductModal({
   const [subCategoryOptions, setSubCategoryOptions] = useState<DropdownOption[]>([]);
   const [loader, setLoader] = useState<boolean>(false);
   const [generalError, setGeneralError] = useState<string | null>(null);
+  const [primaryImage, setPrimaryImage] = useState<string>("");
 
   const {
     register,
@@ -68,11 +69,13 @@ export function CreateMasterProductModal({
         skuCode: editingProduct.skuCode || "",
         mrp: editingProduct.mrp !== undefined ? String(editingProduct.mrp) : "",
         size: editingProduct.size || "",
-        images: (editingProduct.media && editingProduct.media[0]) || null,
+        images: editingProduct.media || [],
         description: editingProduct.description || "",
       });
+      setPrimaryImage(editingProduct.media?.[0] || "");
     } else {
       reset(defaultValues);
+      setPrimaryImage("");
     }
   }, [editingProduct, isOpen, reset, isEdit]);
 
@@ -164,16 +167,17 @@ export function CreateMasterProductModal({
     try {
       setLoader(true);
       setGeneralError(null);
-      let imageUrl = "";
-
-      if (data.images) {
-        const file = Array.isArray(data.images) ? data.images[0] : (data.images as any);
-        if (file instanceof File) {
-          imageUrl = await uploadImage(file);
-        } else if (typeof data.images === "string") {
-          imageUrl = data.images; // Preserve existing image URL
-        }
-      }
+      // Reorder images to ensure the primary image is at index 0
+      const currentImages = Array.isArray(data.images)
+        ? data.images
+        : typeof data.images === "string"
+        ? [data.images]
+        : [];
+      
+      const reorderedMedia = [
+        primaryImage,
+        ...currentImages.filter((url) => url !== primaryImage),
+      ].filter(Boolean);
 
       // Payload building
       const payload = {
@@ -186,7 +190,7 @@ export function CreateMasterProductModal({
         mrp: data.mrp ? Number(data.mrp) : 0,
         size: data.size?.trim() || "Standard",
         description: data.description?.trim() || "",
-        media: imageUrl ? [imageUrl] : [],
+        media: reorderedMedia,
       };
 
       let response;
@@ -195,6 +199,7 @@ export function CreateMasterProductModal({
         // Support both body-based ID and URL-based ID for maximum backend compatibility
         const editPayload = {
           id: editingProduct._id,
+          active: editingProduct.active !== false,
           ...payload,
         };
         response = await httpClient.put(
@@ -205,7 +210,7 @@ export function CreateMasterProductModal({
         if (!response.ok) {
           response = await httpClient.put(
             getCompleteUrlV1(`master/${editingProduct._id}`),
-            payload
+            editPayload
           );
         }
       } else {
@@ -456,39 +461,53 @@ export function CreateMasterProductModal({
                 )}
               />
 
-              {/* Image Upload Component */}
+              {/* Product Gallery Uploader Component */}
               <Controller
                 name="images"
                 control={control}
                 rules={{
-                  required: !isEdit && "Product Image is required",
                   validate: {
-                    fileType: (value) => {
-                      if (!value || typeof value === "string") return true;
-                      const file = Array.isArray(value) ? value[0] : value;
-                      if (file instanceof File) {
-                        return file.type.startsWith("image/") || "Only image files are allowed";
-                      }
-                      return true;
-                    },
-                    fileSize: (value) => {
-                      if (!value || typeof value === "string") return true;
-                      const file = Array.isArray(value) ? value[0] : value;
-                      if (file instanceof File) {
-                        return file.size <= 2 * 1024 * 1024 || "Image size must be less than 2MB";
-                      }
-                      return true;
-                    },
-                  },
+                    required: (value) => {
+                      const count = Array.isArray(value) ? value.length : 0;
+                      return count > 0 || "At least one product image is required";
+                    }
+                  }
                 }}
                 render={({ field, fieldState }) => (
-                  <ImageUpload
-                    label="Product Image *"
-                    value={field.value as any}
-                    onChange={(file) => setValue("images", file as any, { shouldValidate: true })}
-                    onClear={() => setValue("images", null, { shouldValidate: true })}
-                    error={fieldState.error?.message}
-                  />
+                  <div className="space-y-1">
+                    <ProductGalleryUploader
+                      defaultImages={Array.isArray(field.value) ? (field.value as string[]) : []}
+                      primaryImage={primaryImage}
+                      editable={true}
+                      maxImages={10}
+                      maxSize={2}
+                      onUpload={(urls) => {
+                        setValue("images", urls, { shouldValidate: true });
+                      }}
+                      onDelete={(url) => {
+                        const current = Array.isArray(field.value) ? (field.value as string[]) : [];
+                        const next = current.filter((u) => u !== url);
+                        setValue("images", next, { shouldValidate: true });
+                      }}
+                      onReorder={(urls) => {
+                        setValue("images", urls, { shouldValidate: true });
+                        if (urls.length > 0) {
+                          setPrimaryImage(urls[0]);
+                        }
+                      }}
+                      onPrimaryChange={(url) => {
+                        setPrimaryImage(url);
+                        const current = Array.isArray(field.value) ? (field.value as string[]) : [];
+                        const next = [url, ...current.filter((u) => u !== url)].filter(Boolean);
+                        setValue("images", next, { shouldValidate: true });
+                      }}
+                    />
+                    {fieldState.error && (
+                      <p className="text-xs font-semibold text-rose-500 mt-1">
+                        {fieldState.error.message}
+                      </p>
+                    )}
+                  </div>
                 )}
               />
             </div>
