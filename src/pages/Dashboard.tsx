@@ -1,25 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { ProductType, TopAffiliateType } from "../types";
 import { httpClient } from "../services/ApiService";
 import { getCompleteUrlV1 } from "../utils";
-import TopProducts from "../components/Dashboard/TopProducts";
-import TopUsers from "../components/Dashboard/TopUsers";
-import TopSeller from "../components/Dashboard/TopSeller";
-import TotalOrderAmount from "../components/Dashboard/TotalOrderAmount";
-import TotalPendingApproval from "../components/Dashboard/TotalPendingApproval";
-import TotalOrderMetrics from "../components/Dashboard/TotalOrderMetrics";
 import { formatDate } from "../utils/utils";
-import MetricCardSkeleton from "../components/Dashboard/Loader/MetricCardSkeleton";
-import TableSkeleton from "../components/Dashboard/Loader/TableSkeleton";
+import { DashboardHeader } from "../components/Dashboard/DashboardHeader";
+import { DashboardKpiCards } from "../components/Dashboard/DashboardKpiCards";
+import { ActionRequiredSection } from "../components/Dashboard/ActionRequiredSection";
+import { OrderPerformanceCard } from "../components/Dashboard/OrderPerformanceCard";
+import { MarketplaceSnapshot } from "../components/Dashboard/MarketplaceSnapshot";
+import { TopProductsTable } from "../components/Dashboard/TopProductsTable";
+import { TopSellersTable } from "../components/Dashboard/TopSellersTable";
+import { TopUsersTable } from "../components/Dashboard/TopUsersTable";
 
 const getDefaultDates = () => {
   const today = new Date();
-
   const endDate = formatDate(today);
 
   const start = new Date(today);
   start.setMonth(start.getMonth() - 2);
-
   const startDate = formatDate(start);
 
   return { startDate, endDate };
@@ -33,163 +31,254 @@ const Dashboard = () => {
 
   const [topProducts, setTopProducts] = useState<ProductType[]>([]);
   const [topUsers, setTopUsers] = useState<TopAffiliateType[]>([]);
-  const [topSeller, setTopSeller] = useState<TopAffiliateType[]>([]);
+  const [topSellers, setTopSellers] = useState<TopAffiliateType[]>([]);
   const [orderData, setOrderData] = useState<any[]>([]);
   const [pendingSellerData, setPendingSellerData] = useState<any[]>([]);
   const [pendingProductData, setPendingProductData] = useState<any[]>([]);
+
   const [loading, setLoading] = useState<boolean>(true);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  useEffect(() => {
-    let isMounted = true;
+  // Isolated section error states
+  const [errors, setErrors] = useState<{
+    products: boolean;
+    sellers: boolean;
+    users: boolean;
+    orders: boolean;
+    pendingSellers: boolean;
+    pendingProducts: boolean;
+  }>({
+    products: false,
+    sellers: false,
+    users: false,
+    orders: false,
+    pendingSellers: false,
+    pendingProducts: false,
+  });
 
-    const fetchDashboardData = async () => {
-      try {
-        setLoading(true);
-        const [
-          productsRes,
-          sellersRes,
-          usersRes,
-          ordersRes,
-          pendingSellerRequestsRes,
-          pendingProductRequestsRes,
-        ] = await Promise.all([
-          httpClient.get(
-            getCompleteUrlV1("product/top-products", {
-              limit: "10",
-              startDate,
-              endDate,
-            }),
-          ),
-          httpClient.get(
-            getCompleteUrlV1("product/top-sellers", {
-              limit: "10",
-              startDate,
-              endDate,
-              userOrSellerFlag: 1,
-            }),
-          ),
-          httpClient.get(
-            getCompleteUrlV1("product/top-sellers", {
-              limit: "10",
-              startDate,
-              endDate,
-              userOrSellerFlag: 2,
-            }),
-          ),
-          httpClient.get(
-            getCompleteUrlV1("order", {
-              limit: "1000",
-              startDate,
-              endDate,
-            }),
-          ),
-          httpClient.get(
-            getCompleteUrlV1("request/admin-requests", {
-              status: "pending",
-              type: "seller_onboarding",
-            }),
-          ),
-          httpClient.get(
-            getCompleteUrlV1("request/admin-requests", {
-              status: "pending",
-              type: "product_approval",
-            }),
-          ),
-        ]);
+  const fetchDashboardData = useCallback(async () => {
+    try {
+      setIsRefreshing(true);
 
-        const [
-          productsJson,
-          sellersJson,
-          usersJson,
-          ordersJson,
-          pendingSellerRequestsJson,
-          pendingProductRequestsJson,
-        ] = await Promise.all([
-          productsRes.json(),
-          sellersRes.json(),
-          usersRes.json(),
-          ordersRes.json(),
-          pendingSellerRequestsRes.json(),
-          pendingProductRequestsRes.json(),
-        ]);
+      const [
+        productsRes,
+        sellersRes,
+        usersRes,
+        ordersRes,
+        pendingSellerRequestsRes,
+        pendingProductRequestsRes,
+      ] = await Promise.allSettled([
+        httpClient.get(
+          getCompleteUrlV1("product/top-products", {
+            limit: "10",
+            startDate,
+            endDate,
+          })
+        ),
+        httpClient.get(
+          getCompleteUrlV1("product/top-sellers", {
+            limit: "10",
+            startDate,
+            endDate,
+            userOrSellerFlag: 1,
+          })
+        ),
+        httpClient.get(
+          getCompleteUrlV1("product/top-sellers", {
+            limit: "10",
+            startDate,
+            endDate,
+            userOrSellerFlag: 2,
+          })
+        ),
+        httpClient.get(
+          getCompleteUrlV1("order", {
+            limit: "1000",
+            startDate,
+            endDate,
+          })
+        ),
+        httpClient.get(
+          getCompleteUrlV1("request/admin-requests", {
+            status: "pending",
+            type: "seller_onboarding",
+          })
+        ),
+        httpClient.get(
+          getCompleteUrlV1("request/admin-requests", {
+            status: "pending",
+            type: "product_approval",
+          })
+        ),
+      ]);
 
-        if (!isMounted) return;
+      const newErrors = {
+        products: false,
+        sellers: false,
+        users: false,
+        orders: false,
+        pendingSellers: false,
+        pendingProducts: false,
+      };
 
-        setTopProducts(productsJson.data || []);
-        setTopSeller(sellersJson.data || []);
-        setTopUsers(usersJson.data || []);
-        setOrderData(ordersJson.data || []);
-        setPendingSellerData(pendingSellerRequestsJson.data || []);
-        setPendingProductData(pendingProductRequestsJson.data || []);
-      } catch (error) {
-        console.error("Dashboard API error:", error);
-      } finally {
-        isMounted && setLoading(false);
+      // 1. Process Top Products
+      if (productsRes.status === "fulfilled" && productsRes.value.ok) {
+        try {
+          const json = await productsRes.value.json();
+          setTopProducts(json.data || []);
+        } catch {
+          newErrors.products = true;
+        }
+      } else {
+        newErrors.products = true;
       }
-    };
 
-    fetchDashboardData();
+      // 2. Process Top Sellers
+      if (sellersRes.status === "fulfilled" && sellersRes.value.ok) {
+        try {
+          const json = await sellersRes.value.json();
+          setTopSellers(json.data || []);
+        } catch {
+          newErrors.sellers = true;
+        }
+      } else {
+        newErrors.sellers = true;
+      }
 
-    return () => {
-      isMounted = false;
-    };
+      // 3. Process Top Users
+      if (usersRes.status === "fulfilled" && usersRes.value.ok) {
+        try {
+          const json = await usersRes.value.json();
+          setTopUsers(json.data || []);
+        } catch {
+          newErrors.users = true;
+        }
+      } else {
+        newErrors.users = true;
+      }
+
+      // 4. Process Orders
+      if (ordersRes.status === "fulfilled" && ordersRes.value.ok) {
+        try {
+          const json = await ordersRes.value.json();
+          setOrderData(json.data || []);
+        } catch {
+          newErrors.orders = true;
+        }
+      } else {
+        newErrors.orders = true;
+      }
+
+      // 5. Process Pending Seller Requests
+      if (
+        pendingSellerRequestsRes.status === "fulfilled" &&
+        pendingSellerRequestsRes.value.ok
+      ) {
+        try {
+          const json = await pendingSellerRequestsRes.value.json();
+          setPendingSellerData(json.data || []);
+        } catch {
+          newErrors.pendingSellers = true;
+        }
+      } else {
+        newErrors.pendingSellers = true;
+      }
+
+      // 6. Process Pending Product Requests
+      if (
+        pendingProductRequestsRes.status === "fulfilled" &&
+        pendingProductRequestsRes.value.ok
+      ) {
+        try {
+          const json = await pendingProductRequestsRes.value.json();
+          setPendingProductData(json.data || []);
+        } catch {
+          newErrors.pendingProducts = true;
+        }
+      } else {
+        newErrors.pendingProducts = true;
+      }
+
+      setErrors(newErrors);
+      setLastUpdated(new Date());
+    } catch (error) {
+      console.error("Dashboard fetch error:", error);
+    } finally {
+      setLoading(false);
+      setIsRefreshing(false);
+    }
   }, [startDate, endDate]);
 
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  const pendingOrderCount = orderData.filter((item) => item.status === 0).length;
+
   return (
-    <div className="p-4">
-      <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold">Dashboard Overview</h2>
-          <p className="text-[#6a6a6a]">Key metric for your business</p>
+    <div className="min-h-screen bg-slate-50/50 p-4 sm:p-6 lg:p-8">
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* 1. Dashboard Header */}
+        <DashboardHeader
+          startDate={startDate}
+          endDate={endDate}
+          maxDate={defaultEnd}
+          onStartDateChange={setStartDate}
+          onEndDateChange={setEndDate}
+          onRefresh={fetchDashboardData}
+          isRefreshing={isRefreshing}
+          lastUpdated={lastUpdated}
+        />
+
+        {/* 2. Executive KPI Overview Cards */}
+        <DashboardKpiCards
+          orders={orderData}
+          pendingSellerData={pendingSellerData}
+          pendingProductData={pendingProductData}
+          loading={loading}
+        />
+
+        {/* 3. Action Required Operational Section */}
+        <ActionRequiredSection
+          pendingSellerCount={pendingSellerData.length}
+          pendingProductCount={pendingProductData.length}
+          pendingOrderCount={pendingOrderCount}
+          loading={loading}
+        />
+
+        {/* 4. Sales / Order Performance & Marketplace Snapshot */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <OrderPerformanceCard orders={orderData} loading={loading} />
+          <MarketplaceSnapshot
+            topProducts={topProducts}
+            topSellers={topSellers}
+            orders={orderData}
+            loading={loading}
+          />
         </div>
 
-        <div className="flex gap-4">
-          <label className="self-center font-medium">Filter by Date:</label>
-          <input
-            type="date"
-            className="p-2 border border-gray-300 rounded-md"
-            value={startDate}
-            max={endDate}
-            onChange={(e) => setStartDate(e.target.value)}
+        {/* 5. Ranking Tables Grid (Top Products, Top Sellers, Top Users) */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <TopProductsTable
+            products={topProducts}
+            loading={loading}
+            error={errors.products}
+            onRetry={fetchDashboardData}
           />
-
-          <input
-            type="date"
-            className="p-2 border border-gray-300 rounded-md"
-            value={endDate}
-            min={startDate}
-            max={defaultEnd}
-            onChange={(e) => setEndDate(e.target.value)}
+          <TopSellersTable
+            sellers={topSellers}
+            loading={loading}
+            error={errors.sellers}
+            onRetry={fetchDashboardData}
+          />
+          <TopUsersTable
+            users={topUsers}
+            loading={loading}
+            error={errors.users}
+            onRetry={fetchDashboardData}
           />
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {loading ? (
-          <>
-            {/* Metric cards */}
-            <MetricCardSkeleton />
-            <MetricCardSkeleton />
-            <MetricCardSkeleton />
-
-            {/* Tables */}
-            <TableSkeleton />
-            <TableSkeleton />
-            <TableSkeleton />
-          </>
-        ) : (
-          <>
-            <TotalOrderAmount orders={orderData} />
-            <TotalPendingApproval
-              pendingSellerData={pendingSellerData}
-              pendingProductData={pendingProductData}
-            />
-            <TotalOrderMetrics orders={orderData} />
-            <TopProducts products={topProducts} />
-            <TopUsers users={topUsers} />
-            <TopSeller sellers={topSeller} />
-          </>
-        )}
       </div>
     </div>
   );

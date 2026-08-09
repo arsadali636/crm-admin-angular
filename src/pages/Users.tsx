@@ -88,6 +88,9 @@ const Users = () => {
   // Search input
   const searchInput = searchParams.get("search") || "";
 
+  // Dynamic Wallet Balances Map (userId -> balance)
+  const [walletBalances, setWalletBalances] = useState<Record<string, number>>({});
+
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -159,48 +162,11 @@ const Users = () => {
       const json = await res.json();
       const rawData = json.data ?? [];
 
-      // Map API Data and Enrich with Deterministic Mock CRM stats
+      // Map API Data cleanly without static mock generators
       const enriched: IUser[] = rawData.map((u: any) => {
-        const id = u._id || Math.random().toString(36).substr(2, 9);
-        const email = u.email || "";
-        const emailHash = email.split("").reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
+        const id = u._id || u.id || Math.random().toString(36).substr(2, 9);
 
-        // Location Info
-        const locations = [
-          { state: "Maharashtra", city: "Mumbai", district: "Mumbai City", pincode: "400001" },
-          { state: "Delhi", city: "New Delhi", district: "Central Delhi", pincode: "110001" },
-          { state: "Karnataka", city: "Bengaluru", district: "Bengaluru Urban", pincode: "560001" },
-          { state: "Tamil Nadu", city: "Chennai", district: "Chennai", pincode: "600001" },
-          { state: "Gujarat", city: "Ahmedabad", district: "Ahmedabad", pincode: "380001" },
-          { state: "Uttar Pradesh", city: "Noida", district: "Gautam Buddha Nagar", pincode: "201301" },
-          { state: "Telangana", city: "Hyderabad", district: "Hyderabad", pincode: "500001" },
-        ];
-        const loc = locations[emailHash % locations.length];
-
-        // Financial & Orders
-        const walletBalance = (emailHash * 17) % 45000;
-        const walletLocked = (emailHash * 3) % 2500;
-        const walletEarnings = walletBalance + walletLocked + ((emailHash * 9) % 15000);
-        const withdrawals = (emailHash * 11) % 8000;
-        const pendingWithdrawals = (emailHash * 7) % 1500;
-
-        const totalOrders = (emailHash * 5) % 45;
-        const completedOrders = Math.floor(totalOrders * 0.85);
-        const pendingOrders = Math.floor(totalOrders * 0.1);
-        const returns = totalOrders - completedOrders - pendingOrders;
-        const totalPurchase = completedOrders * ((emailHash * 23) % 1200 + 400);
-        const ltv = totalPurchase + ((emailHash * 31) % 5000);
-
-        // Promoter Referral metrics
-        const referralCount = (emailHash * 7) % 35;
-        const commissionEarned = referralCount * 125;
-        const campaignsJoined = (emailHash * 2) % 6;
-        const performance = referralCount > 25 ? "Elite" : referralCount > 10 ? "Pro" : "Standard";
-
-        // KYC Status
-        const kycStatus = (emailHash % 3 === 0) ? "pending" : (emailHash % 5 === 0) ? "unverified" : "verified";
-        
-        // Roles formatting (sometimes role is string, sometimes array)
+        // Roles formatting
         let rolesArray: string[] = [];
         if (Array.isArray(u.role)) {
           rolesArray = u.role;
@@ -210,58 +176,73 @@ const Users = () => {
           rolesArray = ["user"];
         }
 
-        // Merge actual API fields with deterministic Enterprise stats
+        // Map API fields directly
         const userObj: IUser = {
           _id: id,
           role: rolesArray,
           email: u.email || "",
           firstName: u.firstName || "",
           lastName: u.lastName || "",
-          affiliateId: u.affiliateId || `AFF-${(u.firstName || "LOTT").toUpperCase().slice(0, 4)}-${emailHash % 100}`,
-          phoneNumber: u.phoneNumber || "",
-          createdAt: u.createdAt || moment().subtract(emailHash % 60, "days").toISOString(),
+          affiliateId: u.affiliateId || u.referralCode || undefined,
+          phoneNumber: u.phoneNumber || u.phone || "",
+          createdAt: u.createdAt || "",
           status: u.status || "active",
-          gender: emailHash % 2 === 0 ? "Male" : "Female",
-          dob: moment().subtract(20 + (emailHash % 25), "years").format("YYYY-MM-DD"),
-          altPhone: u.phoneNumber ? u.phoneNumber.replace(/.$/, "0") : "",
-          state: loc.state,
-          city: loc.city,
-          district: loc.district,
-          pincode: loc.pincode,
-          kycStatus: kycStatus as "verified" | "unverified" | "pending",
-          lastLogin: `103.85.12.${emailHash % 255}`,
-          wallet: {
-            balance: walletBalance,
-            locked: walletLocked,
-            earnings: walletEarnings,
-            withdrawals,
-            pendingWithdrawals,
-          },
-          orders: {
-            total: totalOrders,
-            completed: completedOrders,
-            pending: pendingOrders,
-            cancelled: Math.max(0, totalOrders - completedOrders - pendingOrders - returns),
-            returns,
-            totalPurchase,
-            ltv,
-          },
-          promoterInfo: {
-            referralCount,
-            commissionEarned,
-            campaignsJoined,
-            performance,
-          },
+          gender: u.gender || undefined,
+          dob: u.dob || undefined,
+          altPhone: u.altPhone || u.alternatePhone || undefined,
+          state: u.state || u.location?.state || undefined,
+          city: u.city || u.location?.city || undefined,
+          district: u.district || u.location?.district || undefined,
+          pincode: u.pincode || u.location?.pincode || undefined,
+          kycStatus: u.kycStatus || (u.isKycVerified ? "verified" : undefined),
+          lastLogin: u.lastLogin || u.lastLoginIp || undefined,
+          wallet: u.wallet ? {
+            balance: Number(u.wallet.balance || u.wallet.walletBalance || 0),
+            locked: Number(u.wallet.locked || u.wallet.lockedBalance || 0),
+            earnings: Number(u.wallet.earnings || u.wallet.lifetimeEarnings || 0),
+            withdrawals: Number(u.wallet.withdrawals || 0),
+            pendingWithdrawals: Number(u.wallet.pendingWithdrawals || 0),
+          } : (u.walletBalance !== undefined ? {
+            balance: Number(u.walletBalance || 0),
+            locked: Number(u.walletLocked || 0),
+            earnings: Number(u.walletEarnings || 0),
+            withdrawals: Number(u.withdrawals || 0),
+            pendingWithdrawals: Number(u.pendingWithdrawals || 0),
+          } : undefined),
+          orders: u.orders ? {
+            total: Number(u.orders.total || 0),
+            completed: Number(u.orders.completed || 0),
+            pending: Number(u.orders.pending || 0),
+            cancelled: Number(u.orders.cancelled || 0),
+            returns: Number(u.orders.returns || 0),
+            totalPurchase: Number(u.orders.totalPurchase || 0),
+            ltv: Number(u.orders.ltv || 0),
+          } : (u.totalOrders !== undefined ? {
+            total: Number(u.totalOrders || 0),
+            completed: Number(u.completedOrders || 0),
+            pending: Number(u.pendingOrders || 0),
+            cancelled: Number(u.cancelledOrders || 0),
+            returns: Number(u.returns || 0),
+            totalPurchase: Number(u.totalPurchase || 0),
+            ltv: Number(u.ltv || 0),
+          } : undefined),
+          promoterInfo: u.promoterInfo || undefined,
           seller: u.seller
             ? {
-                businessName: u.seller.businessName,
-                address: u.seller.address || `${loc.city}, ${loc.state}`,
-                aadhaarNumber: u.seller.aadhaarNumber,
-                gstNumber: u.seller.gstNumber,
-                pan: `ABCDE${emailHash % 9999}F`,
-                businessType: emailHash % 2 === 0 ? "Proprietorship" : "Partnership",
-                businessCategory: emailHash % 3 === 0 ? "Fashion & Apparel" : "Grocery & Daily Needs",
-                verificationStatus: "verified",
+                ...u.seller,
+                businessName: u.seller.businessName || u.businessName || "",
+                address: u.seller.address || u.businessAddress || "",
+                aadhaarNumber: u.seller.aadhaarNumber || "",
+                gstNumber: u.seller.gstNumber || u.gstin || "",
+                pan: u.seller.panNumber || u.seller.pan || u.seller.panCard || "",
+                panNumber: u.seller.panNumber || u.seller.pan || u.seller.panCard || "",
+                typeOfBusiness: u.seller.typeOfBusiness,
+                industry: u.seller.industry,
+                businessType: Array.isArray(u.seller.typeOfBusiness) 
+                  ? u.seller.typeOfBusiness.join(", ") 
+                  : u.seller.typeOfBusiness || u.seller.businessType || "",
+                businessCategory: u.seller.industry || u.seller.businessCategory || "",
+                verificationStatus: u.seller.verificationStatus || "verified",
               }
             : undefined,
         };
@@ -272,6 +253,12 @@ const Users = () => {
         if (savedData) {
           const parsed = JSON.parse(savedData);
           if (parsed.userOverride) {
+            if (parsed.userOverride.seller?.pan?.startsWith("ABCDE")) {
+              delete parsed.userOverride.seller.pan;
+            }
+            if (parsed.userOverride.seller?.panNumber?.startsWith("ABCDE")) {
+              delete parsed.userOverride.seller.panNumber;
+            }
             return {
               ...userObj,
               ...parsed.userOverride,
@@ -299,6 +286,44 @@ const Users = () => {
   useEffect(() => {
     fetchUsers();
   }, []);
+
+  // Dynamically fetch live wallet balances from API for listed users
+  useEffect(() => {
+    if (allUsers.length === 0) return;
+
+    let isMounted = true;
+    const fetchDynamicWalletBalances = async () => {
+      const newBalances: Record<string, number> = {};
+
+      await Promise.all(
+        allUsers.map(async (u) => {
+          const uid = u._id || (u as any).id;
+          if (!uid) return;
+          try {
+            const res = await httpClient.get(getCompleteUrlV1("wallet", { userId: uid }));
+            if (res.ok) {
+              const json = await res.json();
+              if (json.data?.balance !== undefined) {
+                newBalances[uid] = Number(json.data.balance) || 0;
+              }
+            }
+          } catch (err) {
+            console.error(`Failed to fetch dynamic wallet balance for user ${uid}`, err);
+          }
+        })
+      );
+
+      if (isMounted && Object.keys(newBalances).length > 0) {
+        setWalletBalances((prev) => ({ ...prev, ...newBalances }));
+      }
+    };
+
+    fetchDynamicWalletBalances();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [allUsers]);
 
   // Compute stats for KPI cards
   const stats = useMemo(() => {
@@ -470,7 +495,9 @@ const Users = () => {
       u.seller?.gstNumber || "-",
       u.state || "-",
       u.city || "-",
-      u.wallet?.balance || 0,
+      walletBalances[u._id || (u as any).id || ""] !== undefined
+        ? walletBalances[u._id || (u as any).id || ""]
+        : (u.wallet?.balance || 0),
       u.orders?.total || 0,
       u.orders?.ltv || 0,
       moment(u.createdAt).format("DD-MM-YYYY")
@@ -615,8 +642,11 @@ const Users = () => {
       if (df.hasWallet === false && u.wallet) return false;
 
       // Numeric ranges
-      if (df.walletMin && (u.wallet?.balance || 0) < Number(df.walletMin)) return false;
-      if (df.walletMax && (u.wallet?.balance || 0) > Number(df.walletMax)) return false;
+      const uBal = walletBalances[u._id || (u as any).id || ""] !== undefined
+        ? walletBalances[u._id || (u as any).id || ""]
+        : (u.wallet?.balance || 0);
+      if (df.walletMin && uBal < Number(df.walletMin)) return false;
+      if (df.walletMax && uBal > Number(df.walletMax)) return false;
       if (df.orderCountMin && (u.orders?.total || 0) < Number(df.orderCountMin)) return false;
       if (df.orderCountMax && (u.orders?.total || 0) > Number(df.orderCountMax)) return false;
       if (df.ltvMin && (u.orders?.ltv || 0) < Number(df.ltvMin)) return false;
@@ -630,7 +660,7 @@ const Users = () => {
 
       return true;
     });
-  }, [allUsers, searchInput, activeCardFilter, activeFilters]);
+  }, [allUsers, searchInput, activeCardFilter, activeFilters, walletBalances]);
 
   // Sort Logic
   const sortedUsers = useMemo(() => {
@@ -644,8 +674,10 @@ const Users = () => {
         aVal = `${a.firstName} ${a.lastName}`.toLowerCase();
         bVal = `${b.firstName} ${b.lastName}`.toLowerCase();
       } else if (sortField === "wallet") {
-        aVal = a.wallet?.balance || 0;
-        bVal = b.wallet?.balance || 0;
+        const idA = a._id || (a as any).id || "";
+        const idB = b._id || (b as any).id || "";
+        aVal = walletBalances[idA] !== undefined ? walletBalances[idA] : (a.wallet?.balance || 0);
+        bVal = walletBalances[idB] !== undefined ? walletBalances[idB] : (b.wallet?.balance || 0);
       } else if (sortField === "orders") {
         aVal = a.orders?.total || 0;
         bVal = b.orders?.total || 0;
@@ -1065,7 +1097,11 @@ const Users = () => {
                     )}
                     {columnVisibility.wallet && (
                       <td className="px-5 py-3 font-bold text-slate-700">
-                        ₹{(u.wallet?.balance || 0).toLocaleString()}
+                        ₹{(
+                          walletBalances[u._id || (u as any).id || ""] !== undefined
+                            ? walletBalances[u._id || (u as any).id || ""]
+                            : (u.wallet?.balance || 0)
+                        ).toLocaleString()}
                       </td>
                     )}
                     {columnVisibility.orders && (

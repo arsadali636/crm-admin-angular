@@ -1,33 +1,41 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { httpClient } from "../services/ApiService";
 import { getCompleteUrlV1 } from "../utils";
 import { AdminRequestsType, RequestStatus } from "../types";
-import SelectField from "../components/SelectField";
-import { requestStatusOptions } from "../constants";
-import SellerOnboardingCard from "../components/SellerOnboarding";
-import ProductApprovalCard from "../components/ProductApproval";
 import { Modal } from "../components/ImageModal";
 import CardSkeleton from "../components/CardSkeleton";
-import Breadcrumb from "../components/Breadcrumb";
-import SummaryCard from "../components/SummaryCard";
 import ProductDetailView from "../components/ProductDetailView";
 import SellerDetailView from "../components/SellerDetailView";
+import moment from "moment";
+import { 
+  FiClock, 
+  FiUser, 
+  FiBox, 
+  FiCheckCircle, 
+  FiXCircle, 
+  FiAlertCircle, 
+  FiList
+} from "react-icons/fi";
 
-interface Seller {
-  businessName: string;
-  aadhaarNumber: string;
-  gstNumber: string;
-  _id: string;
-}
+// Import Redesigned Moderation Components
+import ApprovalStatCard from "../components/approvals/ApprovalStatCard";
+import ApprovalCard from "../components/approvals/ApprovalCard";
+import ApprovalToolbar from "../components/approvals/ApprovalToolbar";
+import ApprovalFilters from "../components/approvals/ApprovalFilters";
+import ApprovalPreview from "../components/approvals/ApprovalPreview";
+
 
 interface SellerRequest {
   _id: string;
   email: string;
   firstName: string;
   lastName: string;
-  metadata: Seller;
+  metadata: any;
   status: string;
   type: "seller_onboarding" | "product_approval";
+  createdAt?: string;
+  updatedAt?: string;
+  requester?: any;
 }
 
 interface IInitialFees {
@@ -47,14 +55,59 @@ export type RequestType = "accept" | "reject";
 export const Approvals = () => {
   const [requests, setRequests] = useState<SellerRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedRequest, setSelectedRequest] = useState<any>(null);
 
-  // Search and local filters state
+  // Search, local filter, and sorting states
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest" | "priority">("newest");
+  const [showFiltersPanel, setShowFiltersPanel] = useState(true);
+  const [priorityFilter, setPriorityFilter] = useState("");
+  const [reviewerFilter, setReviewerFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [dateRange, setDateRange] = useState("");
 
-  // Selected detail view request
+  // Bulk Actions
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  // Selected detail view request (for preview panel / mobile detailed view)
   const [activeDetail, setActiveDetail] = useState<any>(null);
+  const [showFullDetailMobile, setShowFullDetailMobile] = useState(false);
+
+  // Modals for preview actions
+  const [previewApproveModal, setPreviewApproveModal] = useState(false);
+  const [previewRejectModal, setPreviewRejectModal] = useState(false);
+  const [previewChangesModal, setPreviewChangesModal] = useState(false);
+
+  // Modal input states
+  const [fees, setFees] = useState(initialFees);
+  const [error, setError] = useState("");
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejectDescription, setRejectDescription] = useState("");
+  const [changesComment, setChangesComment] = useState("");
+  const [selectedMissingFields, setSelectedMissingFields] = useState<string[]>([]);
+  const [selectedRequiredDocs, setSelectedRequiredDocs] = useState<string[]>([]);
+
+  // Pre-configured validation options for checkboxes
+  const validationFields = [
+    "Product Description",
+    "HSN Code",
+    "Barcode",
+    "Lot Weight / Dimensions",
+    "Expiry Date",
+    "Manufacturing Date",
+    "Short Description",
+    "Seller SKU",
+  ];
+
+  const validationDocs = [
+    "GST Identification Certificate",
+    "PAN Card Copy",
+    "Trade License Document",
+    "FSSAI License Certificate",
+    "Drug License",
+    "Import License Certificate",
+    "Manufacturing Certificate",
+    "Expiry Label Image",
+  ];
 
   // Counts of pending items
   const [pendingCounts, setPendingCounts] = useState({
@@ -69,9 +122,6 @@ export const Approvals = () => {
     status: RequestStatus.Pending,
     type: AdminRequestsType.sellerOnboarding,
   });
-
-  const [fees, setFees] = useState(initialFees);
-  const [error, setError] = useState("");
 
   // Fetch pending statistics for products and sellers
   async function getPendingCounts() {
@@ -112,14 +162,14 @@ export const Approvals = () => {
       requiredDocuments?: string[];
     }
   ) => {
-    const selectedRequest = request || activeDetail;
+    const targetRequest = request || activeDetail;
     let data: any = {
-      id: selectedRequest?._id,
+      id: targetRequest?._id,
       status: requestType,
     };
     if (
       requestType === "accept" &&
-      selectedRequest.type === "product_approval"
+      targetRequest.type === "product_approval"
     ) {
       const activeFees = customFees || fees;
       const m = parseInt(activeFees.promoterCommission || activeFees.messengerFee);
@@ -155,6 +205,7 @@ export const Approvals = () => {
     setError("");
     onModalClose();
     setActiveDetail(null);
+    setShowFullDetailMobile(false);
     getPendingCounts();
     getSellerRequests();
   };
@@ -169,7 +220,7 @@ export const Approvals = () => {
 
       const [approvalRequests] = await Promise.all([
         response.json(),
-        new Promise((resolve) => setTimeout(resolve, 700)),
+        new Promise((resolve) => setTimeout(resolve, 500)),
       ]);
       setRequests(approvalRequests.data || []);
     } catch (err) {
@@ -186,6 +237,11 @@ export const Approvals = () => {
   useEffect(() => {
     getSellerRequests();
   }, [filters]);
+
+  // Clear selections when base filters change
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [filters, searchQuery, priorityFilter, categoryFilter, dateRange]);
 
   const onConfirm = (request: any, requestType: RequestType) => {
     handleSubmit(request, requestType);
@@ -204,36 +260,245 @@ export const Approvals = () => {
   };
 
   const onModalClose = () => {
-    setSelectedRequest(null);
+    setPreviewApproveModal(false);
+    setPreviewRejectModal(false);
+    setPreviewChangesModal(false);
     setFees({ ...initialFees });
+    setRejectReason("");
+    setRejectDescription("");
+    setChangesComment("");
+    setSelectedMissingFields([]);
+    setSelectedRequiredDocs([]);
   };
 
-  // Perform search and sort locally
-  const filteredAndSortedRequests = requests
-    .filter((req) => {
-      if (!searchQuery) return true;
-      const query = searchQuery.toLowerCase();
-      const name = `${req.firstName || ""} ${req.lastName || ""}`.toLowerCase();
-      const email = (req.email || "").toLowerCase();
-      const businessName = (req.metadata?.businessName || "").toLowerCase();
-      return (
-        name.includes(query) ||
-        email.includes(query) ||
-        businessName.includes(query)
-      );
-    })
-    .sort((_a, _b) => {
-      // Simple sort mock
-      return sortOrder === "newest" ? 1 : -1;
-    });
+  // Perform advanced filter, search and sort locally
+  const filteredAndSortedRequests = useMemo(() => {
+    return requests
+      .filter((req) => {
+        // 1. Text Search query
+        if (searchQuery) {
+          const query = searchQuery.toLowerCase();
+          const firstName = req.requester?.firstName || req.firstName || "";
+          const lastName = req.requester?.lastName || req.lastName || "";
+          const name = `${firstName} ${lastName}`.trim().toLowerCase();
+          const email = (req.requester?.email || req.email || "").toLowerCase();
+          const businessName = (req.metadata?.businessName || "").toLowerCase();
+          const id = (req._id || "").toLowerCase();
+          if (
+            !name.includes(query) &&
+            !email.includes(query) &&
+            !businessName.includes(query) &&
+            !id.includes(query)
+          ) {
+            return false;
+          }
+        }
 
-  // If a detail view is active, render it inline
-  if (activeDetail) {
+        // 2. Priority Filter
+        if (priorityFilter) {
+          const isSeller = req.type === "seller_onboarding";
+          const metadata = req.metadata || {};
+          const priority = isSeller
+            ? (!metadata.gstNumber ? "high" : "medium")
+            : (Number(metadata.sellingPrice) > Number(metadata.mrp) || Number(metadata.stock) === 0 ? "high" : "medium");
+          if (priority !== priorityFilter) return false;
+        }
+
+        // 3. Category Filter (for products only)
+        if (categoryFilter && req.type === "product_approval") {
+          const catName = (req.metadata?.masterDetails?.categoryId?.name || req.metadata?.categoryName || "").toLowerCase();
+          if (!catName.includes(categoryFilter.toLowerCase())) return false;
+        }
+
+        // 4. Date Range filter
+        if (dateRange) {
+          const created = moment(req.createdAt);
+          if (dateRange === "today" && !created.isSame(moment(), "day")) return false;
+          if (dateRange === "yesterday" && !created.isSame(moment().subtract(1, "day"), "day")) return false;
+          if (dateRange === "week" && created.isBefore(moment().subtract(7, "days"))) return false;
+          if (dateRange === "month" && created.isBefore(moment().subtract(30, "days"))) return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortOrder === "newest") {
+          return moment(b.createdAt).diff(moment(a.createdAt));
+        }
+        if (sortOrder === "oldest") {
+          return moment(a.createdAt).diff(moment(b.createdAt));
+        }
+        if (sortOrder === "priority") {
+          const getPrioScore = (r: any) => {
+            const isSel = r.type === "seller_onboarding";
+            const meta = r.metadata || {};
+            if (isSel) return !meta.gstNumber ? 2 : 1;
+            return (Number(meta.sellingPrice) > Number(meta.mrp) || Number(meta.stock) === 0) ? 2 : 1;
+          };
+          return getPrioScore(b) - getPrioScore(a);
+        }
+        return 0;
+      });
+  }, [requests, searchQuery, sortOrder, priorityFilter, categoryFilter, dateRange]);
+
+  // Set first item in the list as selected request inside split view
+  useEffect(() => {
+    if (filteredAndSortedRequests.length > 0) {
+      const exists = filteredAndSortedRequests.some(r => r._id === activeDetail?._id);
+      if (!activeDetail || !exists) {
+        setActiveDetail(filteredAndSortedRequests[0]);
+      }
+    } else {
+      setActiveDetail(null);
+    }
+  }, [filteredAndSortedRequests]);
+
+  // Bulk action triggers
+  const handleBulkApprove = () => {
+    alert(`Bulk Approve action triggered for ${selectedIds.length} requests:\n${selectedIds.join(", ")}`);
+  };
+
+  const handleBulkReject = () => {
+    alert(`Bulk Reject action triggered for ${selectedIds.length} requests:\n${selectedIds.join(", ")}`);
+  };
+
+  const handleBulkExport = () => {
+    alert(`Bulk Export action triggered for ${selectedIds.length} requests:\n${selectedIds.join(", ")}`);
+  };
+
+  const toggleSelectId = (id: string) => {
+    setSelectedIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAll = () => {
+    const allIds = filteredAndSortedRequests.map(r => r._id);
+    const isAllSelected = allIds.length > 0 && allIds.every(id => selectedIds.includes(id));
+    if (isAllSelected) {
+      setSelectedIds(prev => prev.filter(id => !allIds.includes(id)));
+    } else {
+      setSelectedIds(prev => [...new Set([...prev, ...allIds])]);
+    }
+  };
+
+  // Preview Action Handlers
+  const handlePreviewApprove = () => {
+    if (activeDetail.type === "product_approval") {
+      setPreviewApproveModal(true);
+    } else {
+      handleSellerReqAction(activeDetail, "accept");
+    }
+  };
+
+  const handlePreviewReject = () => {
+    setPreviewRejectModal(true);
+  };
+
+  const handlePreviewChanges = () => {
+    setPreviewChangesModal(true);
+  };
+
+  const submitPreviewApproval = async () => {
+    setError("");
+    const m = parseInt(fees.messengerFee);
+    const c = parseInt(fees.connectorFee);
+    const p = parseInt(fees.platformFee);
+
+    if (isNaN(m) || isNaN(c) || isNaN(p)) {
+      setError("All commission fields must be valid numbers");
+      return;
+    }
+
+    const payloadFees = {
+      promoterCommission: m,
+      connectorCommission: c,
+      platformFee: p,
+    };
+
+    await handleSubmit(activeDetail, "accept", payloadFees);
+  };
+
+  const submitPreviewRejection = async () => {
+    setError("");
+    if (!rejectReason.trim()) {
+      setError("Please specify a rejection reason.");
+      return;
+    }
+
+    const payload = {
+      reason: rejectReason,
+      comment: rejectDescription,
+    };
+
+    await handleSubmit(activeDetail, "reject", null, payload);
+  };
+
+  const submitPreviewChanges = async () => {
+    setError("");
+    if (!changesComment.trim()) {
+      setError("Please provide change comments.");
+      return;
+    }
+
+    const payload = {
+      reason: "Request Changes",
+      comment: changesComment,
+      missingFields: selectedMissingFields,
+      requiredDocuments: selectedRequiredDocs,
+    };
+
+    await handleSubmit(activeDetail, "reject", null, payload);
+  };
+
+  const handleCheckboxToggle = (list: string[], setList: React.Dispatch<React.SetStateAction<string[]>>, item: string) => {
+    if (list.includes(item)) {
+      setList(list.filter((x) => x !== item));
+    } else {
+      setList([...list, item]);
+    }
+  };
+
+  // Statistics summaries
+  const stats = useMemo(() => {
+    const highPriorityCount = requests.filter(r => {
+      const isSel = r.type === "seller_onboarding";
+      const meta = r.metadata || {};
+      return isSel ? !meta.gstNumber : (Number(meta.sellingPrice) > Number(meta.mrp) || Number(meta.stock) === 0);
+    }).length;
+
+    const approvedCount = requests.filter(r => r.status === "accept").length;
+    const rejectedCount = requests.filter(r => r.status === "reject").length;
+
+    const getAvgReviewTime = () => {
+      const reviewed = requests.filter(r => r.status !== "pending" && r.updatedAt);
+      if (reviewed.length === 0) return "1.2 hrs";
+      const totalDiff = reviewed.reduce((sum, r) => sum + moment(r.updatedAt).diff(moment(r.createdAt)), 0);
+      const avgMs = totalDiff / reviewed.length;
+      const duration = moment.duration(avgMs);
+      if (duration.asDays() >= 1) return `${Math.round(duration.asDays())} days`;
+      if (duration.asHours() >= 1) return `${Math.round(duration.asHours())} hrs`;
+      return `${Math.round(duration.asMinutes())} mins`;
+    };
+
+    return {
+      total: pendingCounts.products + pendingCounts.sellers,
+      products: pendingCounts.products,
+      sellers: pendingCounts.sellers,
+      highPriority: highPriorityCount,
+      approvedToday: approvedCount,
+      rejectedToday: rejectedCount,
+      avgTime: getAvgReviewTime(),
+    };
+  }, [requests, pendingCounts]);
+
+  // If a detail view is active and we are in mobile full view mode, render inline
+  if (showFullDetailMobile && activeDetail) {
     if (activeDetail.type === "product_approval") {
       return (
         <ProductDetailView
           req={activeDetail}
-          onBack={() => setActiveDetail(null)}
+          onBack={() => setShowFullDetailMobile(false)}
           handleSubmit={handleSubmit}
           loading={loading}
         />
@@ -242,7 +507,7 @@ export const Approvals = () => {
       return (
         <SellerDetailView
           req={activeDetail}
-          onBack={() => setActiveDetail(null)}
+          onBack={() => setShowFullDetailMobile(false)}
           handleSubmit={handleSubmit}
           loading={loading}
         />
@@ -250,280 +515,439 @@ export const Approvals = () => {
     }
   }
 
+  const isAllSelected = filteredAndSortedRequests.length > 0 && 
+    filteredAndSortedRequests.every(r => selectedIds.includes(r._id));
+
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-300">
+    <div className="p-6 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-300">
       
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <Breadcrumb
-            items={[
-              { label: "Dashboard", to: "/dashboard" },
-              { label: "Approvals", to: "/approvals" },
-            ]}
+      {/* 1. Header Toolbar */}
+      <ApprovalToolbar
+        onRefresh={() => {
+          getPendingCounts();
+          getSellerRequests();
+        }}
+        onExport={handleBulkExport}
+        onToggleFilters={() => setShowFiltersPanel(!showFiltersPanel)}
+        showFilters={showFiltersPanel}
+        selectedCount={selectedIds.length}
+        totalCount={filteredAndSortedRequests.length}
+        onSelectAll={handleSelectAll}
+        isAllSelected={isAllSelected}
+        onBulkApprove={handleBulkApprove}
+        onBulkReject={handleBulkReject}
+      />
+
+      {/* 2. KPI Summary Cards Grid */}
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <ApprovalStatCard
+            title="Total Pending approvals"
+            value={stats.total}
+            icon={<FiList size={18} className="text-slate-800" />}
+            trend="Total Queue"
+            gradientClass="from-slate-50 to-slate-100/50 border-slate-200/80"
           />
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight mt-1">Approvals Queue</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Review, verify and manage onboarding or product listing requests.
-          </p>
+          <ApprovalStatCard
+            title="Pending Products"
+            value={stats.products}
+            icon={<FiBox size={18} className="text-indigo-650" />}
+            trend={stats.products > 0 ? "Needs Review" : "All Clean"}
+            trendType={stats.products > 0 ? "neutral" : "positive"}
+            gradientClass="from-indigo-50/50 to-purple-50/20 border-indigo-100/60"
+          />
+          <ApprovalStatCard
+            title="Pending Sellers"
+            value={stats.sellers}
+            icon={<FiUser size={18} className="text-blue-600" />}
+            trend={stats.sellers > 0 ? "Needs Review" : "All Clean"}
+            trendType={stats.sellers > 0 ? "neutral" : "positive"}
+            gradientClass="from-blue-50/50 to-sky-50/20 border-blue-100/60"
+          />
+          <ApprovalStatCard
+            title="High Priority"
+            value={stats.highPriority}
+            icon={<FiAlertCircle size={18} className="text-rose-500 animate-pulse" />}
+            trend={stats.highPriority > 0 ? "Urgent Action" : "No Blocker"}
+            trendType={stats.highPriority > 0 ? "negative" : "positive"}
+            gradientClass="from-rose-50/50 to-orange-50/20 border-rose-100/60"
+          />
         </div>
 
-        <button
-          onClick={() => {
-            getPendingCounts();
-            getSellerRequests();
-          }}
-          className="inline-flex items-center justify-center gap-1.5 h-10 px-4 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50 cursor-pointer"
-        >
-          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89M9 11l3-3m0 0l3 3m-3-3v12" />
-          </svg>
-          Refresh
-        </button>
-      </div>
-
-      {/* Stats/Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <SummaryCard
-          title="Pending Products"
-          value={pendingCounts.products}
-          icon={
-            <svg className="h-5 w-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-            </svg>
-          }
-          trend={pendingCounts.products > 0 ? "Needs Review" : "All Clean"}
-          trendType={pendingCounts.products > 0 ? "neutral" : "positive"}
-          gradientClass="from-indigo-50/50 to-purple-50/20 border-indigo-100/60"
-        />
-        <SummaryCard
-          title="Pending Sellers"
-          value={pendingCounts.sellers}
-          icon={
-            <svg className="h-5 w-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-            </svg>
-          }
-          trend={pendingCounts.sellers > 0 ? "Needs Review" : "All Clean"}
-          trendType={pendingCounts.sellers > 0 ? "neutral" : "positive"}
-          gradientClass="from-blue-50/50 to-sky-50/20 border-blue-100/60"
-        />
-        <SummaryCard
-          title="Total Pending"
-          value={pendingCounts.products + pendingCounts.sellers}
-          icon={
-            <svg className="h-5 w-5 text-slate-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-            </svg>
-          }
-          trend="Total Queue"
-          gradientClass="from-slate-50 to-slate-100/50 border-slate-200/80"
-        />
-      </div>
-
-      {/* Tabs & Filters Area */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
-        <div className="flex flex-col gap-4 border-b border-slate-100 pb-5">
-          {/* Tabs */}
-          <div className="flex border-b border-slate-100 max-w-fit gap-1 bg-slate-50/80 p-1.5 rounded-xl">
-            <button
-              onClick={() =>
-                setFilters({
-                  ...filters,
-                  type: AdminRequestsType.sellerOnboarding,
-                })
-              }
-              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                filters.type === AdminRequestsType.sellerOnboarding
-                  ? "bg-white text-slate-900 shadow-xs"
-                  : "text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              Seller Onboarding ({pendingCounts.sellers})
-            </button>
-            <button
-              onClick={() =>
-                setFilters({
-                  ...filters,
-                  type: AdminRequestsType.productApproval,
-                })
-              }
-              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                filters.type === AdminRequestsType.productApproval
-                  ? "bg-white text-slate-900 shadow-xs"
-                  : "text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              Product Listings ({pendingCounts.products})
-            </button>
-          </div>
-
-          {/* Search, Sort, Filter Actions */}
-          <div className="flex flex-col md:flex-row gap-4 items-center justify-between w-full">
-            <div className="relative w-full md:max-w-xs">
-              <svg className="absolute left-3 top-3 h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                type="text"
-                placeholder="Search by name, business or email..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full h-10 pl-9 pr-4 text-xs bg-slate-50/50 rounded-xl border border-slate-200 outline-none focus:border-slate-400 focus:bg-white transition"
-              />
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
-              <div className="flex items-center gap-2">
-                <span className="text-2xs font-semibold text-slate-400 uppercase">Status:</span>
-                <SelectField<RequestStatus>
-                  options={requestStatusOptions}
-                  value={filters.status}
-                  onChange={(value) =>
-                    setFilters({
-                      ...filters,
-                      status: value,
-                    })
-                  }
-                  placeholder="Select status"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="text-2xs font-semibold text-slate-400 uppercase">Sort:</span>
-                <select
-                  value={sortOrder}
-                  onChange={(e) => setSortOrder(e.target.value as any)}
-                  className="h-10 px-3 text-xs bg-slate-50/50 border border-slate-200 rounded-xl outline-none focus:border-slate-400 cursor-pointer"
-                >
-                  <option value="newest">Newest First</option>
-                  <option value="oldest">Oldest First</option>
-                </select>
-              </div>
-            </div>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <ApprovalStatCard
+            title="Approved Today"
+            value={stats.approvedToday}
+            icon={<FiCheckCircle size={18} className="text-emerald-550" />}
+            trend="Live"
+            trendType="positive"
+            gradientClass="from-emerald-50/50 to-teal-50/20 border-emerald-100/60"
+          />
+          <ApprovalStatCard
+            title="Rejected Today"
+            value={stats.rejectedToday}
+            icon={<FiXCircle size={18} className="text-rose-550" />}
+            trend="Review"
+            trendType="negative"
+            gradientClass="from-rose-50/50 to-red-50/20 border-rose-100/60"
+          />
+          <ApprovalStatCard
+            title="Average Review Time"
+            value={stats.avgTime}
+            icon={<FiClock size={18} className="text-amber-500" />}
+            trend="Target < 2h"
+            trendType="positive"
+            gradientClass="from-amber-50/50 to-yellow-50/20 border-amber-100/60"
+          />
         </div>
+      </div>
 
-        {/* Requests Queue List */}
-        <div className="pt-5">
+      {/* 3. Filters panel (Collapsible) */}
+      {showFiltersPanel && (
+        <ApprovalFilters
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          status={filters.status}
+          onStatusChange={(statusVal) => setFilters({ ...filters, status: statusVal })}
+          type={filters.type}
+          onTypeChange={(typeVal) => setFilters({ ...filters, type: typeVal })}
+          sortOrder={sortOrder}
+          onSortChange={setSortOrder}
+          priorityFilter={priorityFilter}
+          onPriorityChange={setPriorityFilter}
+          reviewerFilter={reviewerFilter}
+          onReviewerChange={setReviewerFilter}
+          categoryFilter={categoryFilter}
+          onCategoryChange={setCategoryFilter}
+          dateRange={dateRange}
+          onDateRangeChange={setDateRange}
+          sellerCounts={{ sellers: pendingCounts.sellers, products: pendingCounts.products }}
+        />
+      )}
+
+      {/* 4. Main Workspace (Split layout) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        {/* Left Column: Queue List (7 cols) */}
+        <div className="lg:col-span-7 space-y-4">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              Approvals Queue ({filteredAndSortedRequests.length} items)
+            </span>
+          </div>
+
           {loading && <CardSkeleton />}
-          
-          {filteredAndSortedRequests.length === 0 && !loading ? (
-            <div className="text-center py-16 px-4 animate-in fade-in duration-300">
+
+          {!loading && filteredAndSortedRequests.length === 0 && (
+            <div className="text-center py-16 px-4 bg-white border border-slate-200 rounded-2xl animate-in fade-in duration-300">
               <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-600">
-                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <FiCheckCircle size={24} />
               </div>
-              <h3 className="text-md font-bold text-slate-800">No pending approvals</h3>
+              <h3 className="text-sm font-bold text-slate-800">No pending approvals</h3>
               <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
                 Everything has been reviewed successfully. Check back later for new requests.
               </p>
-              <button
-                onClick={() => {
-                  getPendingCounts();
-                  getSellerRequests();
-                }}
-                className="mt-4 inline-flex items-center justify-center h-9 px-4 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 transition cursor-pointer"
-              >
-                Check for Requests
-              </button>
             </div>
-          ) : (
-            <div className="space-y-4">
-              {filteredAndSortedRequests.map((req) => {
-                if (req.type === "seller_onboarding") {
-                  return (
-                    <SellerOnboardingCard
-                      key={req._id}
-                      req={req}
-                      handleAction={handleSellerReqAction}
-                      onViewDetails={(r) => setActiveDetail(r)}
-                    />
-                  );
-                } else if (req.type === "product_approval") {
-                  return (
-                    <ProductApprovalCard
-                      key={req._id}
-                      req={req}
-                      handleAction={(value) => {
-                        setSelectedRequest(value);
-                      }}
-                      onViewDetails={(r) => setActiveDetail(r)}
-                    />
-                  );
-                }
-                return null;
-              })}
+          )}
+
+          {!loading && filteredAndSortedRequests.length > 0 && (
+            <div className="space-y-3.5">
+              {filteredAndSortedRequests.map((req) => (
+                <ApprovalCard
+                  key={req._id}
+                  req={req}
+                  isSelected={activeDetail?._id === req._id}
+                  isChecked={selectedIds.includes(req._id)}
+                  onCheckChange={() => toggleSelectId(req._id)}
+                  onClick={() => {
+                    setActiveDetail(req);
+                  }}
+                  onViewDetails={() => {
+                    setActiveDetail(req);
+                    setShowFullDetailMobile(true);
+                  }}
+                  onApprove={() => {
+                    setActiveDetail(req);
+                    if (req.type === "product_approval") {
+                      setPreviewApproveModal(true);
+                    } else {
+                      handleSellerReqAction(req, "accept");
+                    }
+                  }}
+                  onReject={() => {
+                    setActiveDetail(req);
+                    setPreviewRejectModal(true);
+                  }}
+                />
+              ))}
             </div>
           )}
         </div>
+
+        {/* Right Column: Live details preview (5 cols) */}
+        <div className="hidden lg:block lg:col-span-5 sticky top-6">
+          <ApprovalPreview
+            req={activeDetail}
+            onApprove={handlePreviewApprove}
+            onReject={handlePreviewReject}
+            onRequestChanges={activeDetail?.type === "product_approval" ? handlePreviewChanges : undefined}
+            onDownloadDocuments={() => {
+              // trigger download files logic dynamically
+              const urls: string[] = [];
+              const scanUrls = (obj: any) => {
+                if (!obj || typeof obj !== "object") return;
+                for (const [, val] of Object.entries(obj)) {
+                  if (typeof val === "string" && (val.startsWith("http://") || val.startsWith("https://"))) {
+                    if (/\.(pdf|png|jpg|jpeg)$/i.test(val.split("?")[0])) {
+                      urls.push(val);
+                    }
+                  } else if (typeof val === "object") {
+                    scanUrls(val);
+                  }
+                }
+              };
+              scanUrls(activeDetail?.metadata);
+              scanUrls(activeDetail?.seller);
+
+              if (urls.length === 0) {
+                alert("No downloadable files found on this request.");
+                return;
+              }
+
+              urls.forEach((url, index) => {
+                setTimeout(() => {
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.target = "_blank";
+                  a.download = `Document_${index + 1}`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                }, index * 400);
+              });
+            }}
+            loading={loading}
+          />
+        </div>
       </div>
 
-      {/* Legacy/List Modal for Inline Actions */}
-      {Boolean(selectedRequest?._id) && (
-        <Modal key={selectedRequest?._id} onClose={onModalClose}>
-          <div className="p-6">
-            <h3 className="text-md font-bold text-slate-900 mb-4 pb-2 border-b border-slate-100">
-              Activate Listing - {selectedRequest?.metadata?.masterDetails?.name || "Product"}
+      {/* 5. Legacy Commission Activation Modal (Product Approval Accept) */}
+      {previewApproveModal && (
+        <Modal onClose={onModalClose}>
+          <div className="w-[440px] max-w-full space-y-4 p-1">
+            <h3 className="text-sm font-black text-slate-900 tracking-tight border-b border-slate-100 pb-3 flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              Approve Listing & Set Margins
             </h3>
-            
+
             {error && (
-              <div className="mb-4 rounded-lg bg-rose-50 border border-rose-100 px-4 py-2.5 text-xs text-rose-700">
+              <div className="p-2.5 bg-rose-50 text-rose-700 border border-rose-100 rounded-lg text-xs font-bold">
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Messenger Commission (%)</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 5"
+                  value={fees.messengerFee}
+                  onChange={(e) => setFees({ ...fees, messengerFee: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs focus:bg-white focus:border-slate-400 outline-none transition"
+                />
+              </div>
+              
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Connector Commission (%)</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 3"
+                  value={fees.connectorFee}
+                  onChange={(e) => setFees({ ...fees, connectorFee: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs focus:bg-white focus:border-slate-400 outline-none transition"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Platform Margin / Fee (%)</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 3"
+                  value={fees.platformFee}
+                  onChange={(e) => setFees({ ...fees, platformFee: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs focus:bg-white focus:border-slate-400 outline-none transition"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-3 border-t border-slate-100 justify-end">
+              <button
+                onClick={onModalClose}
+                className="px-4 py-2 text-xs font-bold text-slate-650 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 cursor-pointer transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitPreviewApproval}
+                disabled={loading}
+                className="px-5 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs cursor-pointer transition disabled:opacity-50"
+              >
+                Complete Approval
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 6. Rejection Workflow Modal */}
+      {previewRejectModal && (
+        <Modal onClose={onModalClose}>
+          <div className="w-[450px] max-w-full space-y-4 p-1">
+            <h3 className="text-sm font-black text-slate-900 tracking-tight border-b border-slate-100 pb-3 flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-rose-500 animate-pulse" />
+              Reject Request
+            </h3>
+
+            {error && (
+              <div className="p-2.5 bg-rose-50 text-rose-700 border border-rose-100 rounded-lg text-xs font-bold">
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Rejection Reason</label>
+                <select
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs focus:bg-white focus:border-slate-400 outline-none transition cursor-pointer"
+                >
+                  <option value="">Select rejection reason...</option>
+                  <option value="Pricing mismatch">Pricing / MRP mismatch</option>
+                  <option value="Poor image quality">Poor image quality / watermarked</option>
+                  <option value="Regulatory license expired">Regulatory license expired</option>
+                  <option value="Incomplete document upload">Incomplete document upload</option>
+                  <option value="Other">Other (specify below)</option>
+                </select>
+              </div>
+
+              {activeDetail?.type === "product_approval" && (
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Detailed Description</label>
+                  <textarea
+                    placeholder="Explain exactly why the listing is being rejected..."
+                    rows={3}
+                    value={rejectDescription}
+                    onChange={(e) => setRejectDescription(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs focus:bg-white focus:border-slate-400 outline-none transition"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 pt-3 border-t border-slate-100 justify-end">
+              <button
+                onClick={onModalClose}
+                className="px-4 py-2 text-xs font-bold text-slate-650 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 cursor-pointer transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitPreviewRejection}
+                disabled={loading}
+                className="px-5 py-2.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs cursor-pointer transition disabled:opacity-50"
+              >
+                Confirm Rejection
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 7. Product Request Changes Modal */}
+      {previewChangesModal && (
+        <Modal onClose={onModalClose}>
+          <div className="w-[500px] max-w-full space-y-4 p-1">
+            <h3 className="text-sm font-black text-slate-900 tracking-tight border-b border-slate-100 pb-3 flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500 animate-pulse" />
+              Request Information Changes
+            </h3>
+
+            {error && (
+              <div className="p-2.5 bg-rose-50 text-rose-700 border border-rose-100 rounded-lg text-xs font-bold">
                 {error}
               </div>
             )}
 
             <div className="space-y-4">
               <div>
-                <label className="text-2xs font-semibold text-slate-500 uppercase block mb-1">Messenger Commission (%)</label>
-                <input
-                  type="number"
-                  placeholder="Messenger Fee"
-                  value={fees.messengerFee}
-                  onChange={(e) => setFees({ ...fees, messengerFee: e.target.value })}
-                  className="w-full border rounded-xl border-slate-200 px-3 py-2.5 text-xs focus:border-slate-400 outline-none"
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1.5">Feedback / Comments</label>
+                <textarea
+                  placeholder="Specify clear instructions for the seller to rectify..."
+                  rows={2.5}
+                  value={changesComment}
+                  onChange={(e) => setChangesComment(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs focus:bg-white focus:border-slate-400 outline-none transition"
                 />
               </div>
+
+              {/* Missing Fields Checklist */}
               <div>
-                <label className="text-2xs font-semibold text-slate-500 uppercase block mb-1">Connector Commission (%)</label>
-                <input
-                  type="number"
-                  placeholder="Connector Fee"
-                  value={fees.connectorFee}
-                  onChange={(e) => setFees({ ...fees, connectorFee: e.target.value })}
-                  className="w-full border rounded-xl border-slate-200 px-3 py-2.5 text-xs focus:border-slate-400 outline-none"
-                />
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-2">Check Missing Fields to Rectify</label>
+                <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100 text-2xs">
+                  {validationFields.map((field) => (
+                    <label key={field} className="flex items-center gap-2 text-slate-700 font-semibold cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={selectedMissingFields.includes(field)}
+                        onChange={() => handleCheckboxToggle(selectedMissingFields, setSelectedMissingFields, field)}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>{field}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
+
+              {/* Required Documents Checklist */}
               <div>
-                <label className="text-2xs font-semibold text-slate-500 uppercase block mb-1">Platform Margin (%)</label>
-                <input
-                  type="number"
-                  placeholder="Platform Fee"
-                  value={fees.platformFee}
-                  onChange={(e) => setFees({ ...fees, platformFee: e.target.value })}
-                  className="w-full border rounded-xl border-slate-200 px-3 py-2.5 text-xs focus:border-slate-400 outline-none"
-                />
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-2">Check Required Documents to Upload</label>
+                <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100 text-2xs">
+                  {validationDocs.map((doc) => (
+                    <label key={doc} className="flex items-center gap-2 text-slate-700 font-semibold cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={selectedRequiredDocs.includes(doc)}
+                        onChange={() => handleCheckboxToggle(selectedRequiredDocs, setSelectedRequiredDocs, doc)}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>{doc}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+            <div className="flex gap-2 pt-3 border-t border-slate-100 justify-end">
               <button
                 onClick={onModalClose}
-                className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+                className="px-4 py-2 text-xs font-bold text-slate-650 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 cursor-pointer transition"
               >
                 Cancel
               </button>
               <button
-                onClick={() => handleSubmit(selectedRequest, "accept")}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition cursor-pointer"
+                onClick={submitPreviewChanges}
+                disabled={loading}
+                className="px-5 py-2.5 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-xl shadow-xs cursor-pointer transition disabled:opacity-50"
               >
-                Complete Activation
+                Send Request to Seller
               </button>
             </div>
           </div>
         </Modal>
       )}
+
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { FiFile, FiDownload, FiEye, FiZoomIn, FiZoomOut, FiX } from "react-icons/fi";
+import { FiFile, FiDownload, FiEye, FiX } from "react-icons/fi";
 import moment from "moment";
 
 interface DocumentItem {
@@ -11,16 +11,15 @@ interface DocumentItem {
   uploadDate: string;
 }
 
-interface DocumentsCardProps {
+interface ApprovalDocumentsProps {
   product: any;
   req: any;
 }
 
-export const DocumentsCard: React.FC<DocumentsCardProps> = ({ product, req }) => {
+export const ApprovalDocuments: React.FC<ApprovalDocumentsProps> = ({ product, req }) => {
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const [zoomActive, setZoomActive] = useState(false);
 
-  // Dynamic scan helper
   const extractDocuments = (): DocumentItem[] => {
     const list: DocumentItem[] = [];
     const submissionDate = req.createdAt ? moment(req.createdAt).format("DD MMM YYYY") : "Not Available";
@@ -36,7 +35,6 @@ export const DocumentsCard: React.FC<DocumentsCardProps> = ({ product, req }) =>
       { key: "expiryLabel", label: "Expiry Label Copy" },
       { key: "batchLabel", label: "Batch Label Copy" },
       { key: "expiryImage", label: "Expiry Product Image" },
-      { key: "expiryDateProofMedia", label: "Expiry Date Proof Document" },
     ];
 
     const visited = new Set();
@@ -48,7 +46,6 @@ export const DocumentsCard: React.FC<DocumentsCardProps> = ({ product, req }) =>
       for (const [k, val] of Object.entries(obj)) {
         const fullKey = parentKey ? `${parentKey}.${k}` : k;
         if (typeof val === "string" && (val.startsWith("http://") || val.startsWith("https://"))) {
-          // Check if key matches one of our known document patterns
           const lowercaseKey = k.toLowerCase();
           const match = docPatterns.find((p) => lowercaseKey.includes(p.key.toLowerCase()));
 
@@ -64,7 +61,6 @@ export const DocumentsCard: React.FC<DocumentsCardProps> = ({ product, req }) =>
               uploadDate: submissionDate,
             });
           } else if (/\.(pdf|png|jpg|jpeg|webp|gif|docx|doc)$/i.test(val.split("?")[0])) {
-            // General matching for files
             const labelName = k.replace(/([A-Z])/g, " $1").replace(/_/g, " ").trim();
             const capitalized = labelName.charAt(0).toUpperCase() + labelName.slice(1);
             const ext = val.split("?")[0].split(".").pop()?.toUpperCase() || "PDF";
@@ -84,28 +80,28 @@ export const DocumentsCard: React.FC<DocumentsCardProps> = ({ product, req }) =>
       }
     };
 
-    // Scan metadata and request structures
     scanObject(product);
-    scanObject(req.seller);
+    scanObject(req.seller || req.metadata);
 
-    // Only add document if actual file URL exists
+    // Only include document if an actual file URL exists
     if (list.length === 0) {
+      const metadata = req.metadata || {};
       const dummyDocs = [];
-      if (product.gstCertificateUrl || req.metadata?.gstCertificateUrl) {
+      if (metadata.gstCertificateUrl || product.gstCertificateUrl) {
         dummyDocs.push({
           key: "gst_dummy",
           name: "GST Registration Certificate",
-          url: product.gstCertificateUrl || req.metadata?.gstCertificateUrl,
+          url: metadata.gstCertificateUrl || product.gstCertificateUrl,
           format: "PDF",
           size: "Document",
           uploadDate: submissionDate,
         });
       }
-      if (product.panCardUrl || req.metadata?.panCardUrl) {
+      if (metadata.panCardUrl || product.panCardUrl) {
         dummyDocs.push({
           key: "pan_dummy",
           name: "PAN Card Copy",
-          url: product.panCardUrl || req.metadata?.panCardUrl,
+          url: metadata.panCardUrl || product.panCardUrl,
           format: "PNG",
           size: "Document",
           uploadDate: submissionDate,
@@ -119,6 +115,8 @@ export const DocumentsCard: React.FC<DocumentsCardProps> = ({ product, req }) =>
 
   const documents = extractDocuments();
 
+  if (documents.length === 0) return null;
+
   const handleDownload = (doc: DocumentItem) => {
     const link = document.createElement("a");
     link.href = doc.url;
@@ -131,71 +129,70 @@ export const DocumentsCard: React.FC<DocumentsCardProps> = ({ product, req }) =>
 
   const getFormatColor = (format: string) => {
     const colors: Record<string, string> = {
-      PDF: "bg-red-50 text-red-600 border-red-150",
-      PNG: "bg-blue-50 text-blue-600 border-blue-150",
-      JPG: "bg-emerald-50 text-emerald-600 border-emerald-150",
-      JPEG: "bg-emerald-50 text-emerald-600 border-emerald-150",
+      PDF: "bg-red-50 text-red-650 border-red-200/50",
+      PNG: "bg-blue-50 text-blue-650 border-blue-200/50",
+      JPG: "bg-emerald-50 text-emerald-650 border-emerald-200/50",
+      JPEG: "bg-emerald-50 text-emerald-650 border-emerald-200/50",
     };
-    return colors[format.toUpperCase()] || "bg-slate-50 text-slate-600 border-slate-150";
+    return colors[format.toUpperCase()] || "bg-slate-50 text-slate-600 border-slate-200/50";
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-5">
+    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
       <div className="flex items-center justify-between mb-1">
-        <h2 className="text-md font-bold text-slate-800 flex items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
-          Verification & Expiry Documents
-        </h2>
-        <span className="text-2xs font-bold uppercase tracking-wider bg-slate-50 px-2 py-0.5 rounded-lg border text-slate-500">
-          Documents Uploaded: {documents.length}
+        <h3 className="text-xs font-bold text-slate-800 flex items-center gap-2 tracking-tight">
+          <span className="h-2 w-2 rounded-full bg-indigo-500" />
+          Verification Documents
+        </h3>
+        <span className="text-[9px] font-bold uppercase tracking-wider bg-slate-50 px-2 py-0.5 rounded-lg border text-slate-500">
+          Documents: {documents.length}
         </span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
         {documents.map((doc) => (
           <div
             key={doc.key}
-            className="group flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/50 p-4 transition-all duration-200 hover:border-slate-300 hover:bg-slate-50"
+            className="group flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/50 p-3.5 transition-all duration-200 hover:border-slate-300 hover:bg-slate-50"
           >
             <div className="flex items-center gap-3">
-              <div className={`flex h-11 w-11 items-center justify-center rounded-lg border font-bold text-2xs ${getFormatColor(doc.format)}`}>
+              <div className={`flex h-10 w-10 items-center justify-center rounded-lg border font-bold text-[9px] ${getFormatColor(doc.format)}`}>
                 {doc.format}
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-bold text-slate-800 truncate max-w-[200px]" title={doc.name}>
+                <p className="text-xs font-bold text-slate-850 truncate max-w-[140px]" title={doc.name}>
                   {doc.name}
                 </p>
-                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-semibold mt-0.5">
+                <div className="flex items-center gap-1 text-[9px] text-slate-400 font-semibold mt-0.5">
                   <span>{doc.size}</span>
-                  <span className="h-1 w-1 rounded-full bg-slate-200" />
-                  <span>Uploaded: {doc.uploadDate}</span>
+                  <span className="h-0.5 w-0.5 rounded-full bg-slate-200" />
+                  <span>{doc.uploadDate}</span>
                 </div>
               </div>
             </div>
 
-            <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
               <button
                 onClick={() => setPreviewDoc(doc)}
-                title="Preview Document"
-                className="p-2 text-slate-500 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition cursor-pointer flex items-center justify-center"
+                title="Preview"
+                className="h-7 w-7 text-slate-500 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition cursor-pointer flex items-center justify-center"
               >
-                <FiEye size={13} />
+                <FiEye size={12} />
               </button>
               <button
                 onClick={() => handleDownload(doc)}
-                title="Download Document"
-                className="p-2 text-slate-500 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition cursor-pointer flex items-center justify-center"
+                title="Download"
+                className="h-7 w-7 text-slate-500 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition cursor-pointer flex items-center justify-center"
               >
-                <FiDownload size={13} />
+                <FiDownload size={12} />
               </button>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Lightbox / Preview Modal */}
       {previewDoc && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-xs animate-in fade-in duration-200">
           <button
             onClick={() => {
               setPreviewDoc(null);
@@ -207,23 +204,22 @@ export const DocumentsCard: React.FC<DocumentsCardProps> = ({ product, req }) =>
           </button>
 
           <div className="max-w-[85vw] max-h-[85vh] flex flex-col items-center gap-4">
-            <h3 className="text-white text-sm font-bold tracking-wider">{previewDoc.name}</h3>
+            <h3 className="text-white text-xs font-bold tracking-wider">{previewDoc.name}</h3>
 
-            {/* Check format type */}
             {["PDF", "DOCX", "DOC", "XLSX", "XLS"].includes(previewDoc.format.toUpperCase()) ? (
               <div className="w-[80vw] h-[70vh] bg-white rounded-xl overflow-hidden flex flex-col items-center justify-center p-6 border border-slate-800">
-                <FiFile size={60} className="text-slate-400 mb-4" />
-                <p className="text-slate-800 text-sm font-bold mb-1">
+                <FiFile size={50} className="text-slate-400 mb-4 animate-pulse" />
+                <p className="text-slate-800 text-xs font-bold mb-1">
                   Preview not directly renderable inside browser sandbox
                 </p>
-                <p className="text-slate-400 text-xs mb-4">
+                <p className="text-slate-400 text-[10px] mb-4">
                   Format: {previewDoc.format} ({previewDoc.size})
                 </p>
                 <button
                   onClick={() => handleDownload(previewDoc)}
-                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition cursor-pointer"
                 >
-                  <FiDownload />
+                  <FiDownload size={12} />
                   Download File to View
                 </button>
               </div>
@@ -237,24 +233,8 @@ export const DocumentsCard: React.FC<DocumentsCardProps> = ({ product, req }) =>
                   }`}
                   onClick={() => setZoomActive(!zoomActive)}
                 />
-                <div className="absolute right-3 bottom-3 flex gap-2">
-                  <button
-                    onClick={() => setZoomActive(!zoomActive)}
-                    className="p-1.5 rounded-lg bg-black/60 hover:bg-black text-white backdrop-blur-xs transition cursor-pointer"
-                  >
-                    {zoomActive ? <FiZoomOut size={13} /> : <FiZoomIn size={13} />}
-                  </button>
-                </div>
               </div>
             )}
-
-            <div className="text-white/80 text-2xs font-semibold uppercase tracking-widest mt-2 flex items-center gap-3">
-              <span>{previewDoc.format}</span>
-              <span>•</span>
-              <span>{previewDoc.size}</span>
-              <span>•</span>
-              <span>Uploaded: {previewDoc.uploadDate}</span>
-            </div>
           </div>
         </div>
       )}
@@ -262,4 +242,4 @@ export const DocumentsCard: React.FC<DocumentsCardProps> = ({ product, req }) =>
   );
 };
 
-export default DocumentsCard;
+export default ApprovalDocuments;

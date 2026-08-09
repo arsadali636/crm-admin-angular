@@ -410,184 +410,247 @@ export function ProductAdminTable({
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm font-light border-collapse divide-y divide-slate-100">
             <thead>
-              <tr className="bg-slate-50/50 text-slate-500 text-xs uppercase font-bold tracking-wider text-left">
-                <th className="py-4 px-6 font-semibold w-20">Product Image</th>
-                <th className="py-4 px-6 font-semibold">Product Name</th>
-                <th className="py-4 px-6 font-semibold">Category</th>
-                <th className="py-4 px-6 font-semibold">Price</th>
-                <th className="py-4 px-6 font-semibold">Discount</th>
-                <th className="py-4 px-6 font-semibold">Status</th>
-                <th className="py-4 px-6 font-semibold">Created Date</th>
-                <th className="py-4 px-6 font-semibold w-16 text-center">Actions</th>
+              <tr className="bg-slate-50/70 text-slate-500 text-xs uppercase font-extrabold tracking-wider text-left">
+                <th className="py-3.5 px-5 font-bold w-16">Image</th>
+                <th className="py-3.5 px-5 font-bold">Product Name</th>
+                <th className="py-3.5 px-5 font-bold">Category Hierarchy</th>
+                <th className="py-3.5 px-5 font-bold">Price Range</th>
+                <th className="py-3.5 px-5 font-bold">Discount</th>
+                <th className="py-3.5 px-5 font-bold">Seller</th>
+                <th className="py-3.5 px-5 font-bold">Stock</th>
+                <th className="py-3.5 px-5 font-bold">Status</th>
+                <th className="py-3.5 px-5 font-bold">Created Date</th>
+                <th className="py-3.5 px-5 font-bold w-16 text-center">Actions</th>
               </tr>
             </thead>
 
             <tbody className="text-slate-600 divide-y divide-slate-100 bg-white">
-              {products.length > 0 ? (
-                products.map((p, idx) => (
-                  <tr
-                    key={p._id || idx}
-                    className="hover:bg-slate-50/50 transition-colors duration-150 relative"
-                  >
-                    {/* Thumbnail Image */}
-                    <td className="py-4 px-6 align-middle">
-                      <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-200/60 overflow-hidden flex items-center justify-center flex-shrink-0 shadow-sm">
-                        {p.media?.[0] || p.masterDetails?.media?.[0] ? (
-                          <img
-                            src={p.media?.[0] || p.masterDetails?.media?.[0]}
-                            alt={p.masterDetails?.name || "Product image"}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <FaBox className="text-slate-300" size={16} />
+              {(() => {
+                // Ensure newest products appear first by default (createdAt DESC)
+                const sortedProducts = [...products].sort((a: any, b: any) => {
+                  const timeA = new Date(a.createdAt || a.createdAt_EP || a.mfg || 0).getTime();
+                  const timeB = new Date(b.createdAt || b.createdAt_EP || b.mfg || 0).getTime();
+                  if (timeA && timeB && timeA !== timeB) return timeB - timeA;
+                  return (b._id || "").localeCompare(a._id || "");
+                });
+
+                if (sortedProducts.length === 0) {
+                  return (
+                    <tr>
+                      <td colSpan={10} className="text-center py-12 text-slate-400 font-medium">
+                        No products found matching the search or filters.
+                      </td>
+                    </tr>
+                  );
+                }
+
+                return sortedProducts.map((p, idx) => {
+                  const title = p.masterDetails?.name || (p as any).productName || p.description || "Unnamed Product";
+                  const brand = p.masterDetails?.brand || (p as any).brandName || (p as any).brand;
+                  const catMain = p.categoryDetails?.name || (p as any).categoryName || "Uncategorized";
+                  const subCat = (p as any).subCategoryDetails?.name || (p as any).subCategory;
+                  const prodSubCat = (p as any).productCategoryDetails?.name || (p as any).productCategory;
+                  const sellerName = (p as any).sellerDetails?.businessName || (p as any).sellerName || (p as any).requester?.firstName || "Cosmetics";
+                  const stockVal = (p as any).stock !== undefined ? (p as any).stock : (p as any).totalStock;
+
+                  return (
+                    <tr
+                      key={p._id || idx}
+                      onClick={() => {
+                        setProductData(p);
+                        setOpenDetail(true);
+                      }}
+                      className="hover:bg-slate-50/70 transition-colors duration-150 relative cursor-pointer"
+                    >
+                      {/* Thumbnail Image */}
+                      <td className="py-3.5 px-5 align-middle">
+                        <div className="w-11 h-11 rounded-xl bg-slate-50 border border-slate-200/80 overflow-hidden flex items-center justify-center flex-shrink-0 shadow-2xs">
+                          {p.media?.[0] || p.masterDetails?.media?.[0] ? (
+                            <img
+                              src={p.media?.[0] || p.masterDetails?.media?.[0]}
+                              alt={title}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <FaBox className="text-slate-300" size={16} />
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Product Name & Brand */}
+                      <td className="py-3.5 px-5 align-middle font-medium text-slate-800">
+                        <div
+                          className="max-w-xs truncate text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors"
+                          title={title}
+                        >
+                          {title}
+                        </div>
+                        {brand && (
+                          <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider mt-0.5 block">
+                            {brand}
+                          </span>
                         )}
-                      </div>
-                    </td>
+                      </td>
 
-                    {/* Product Name */}
-                    <td className="py-4 px-6 align-middle font-medium text-slate-800">
-                      <div
-                        className="max-w-xs truncate text-[13.5px] font-semibold text-slate-700"
-                        title={p.masterDetails?.name || p.description}
-                      >
-                        {p.masterDetails?.name || p.description || "Unnamed Product"}
-                      </div>
-                      {p.masterDetails?.brand && (
-                        <span className="text-[10px] text-slate-400 uppercase tracking-wider mt-0.5 block font-semibold">
-                          {p.masterDetails.brand}
+                      {/* Category Hierarchy (Category > Product Category > Sub Category) */}
+                      <td className="py-3.5 px-5 align-middle">
+                        <div className="flex flex-col gap-0.5 max-w-[210px]">
+                          <span className="text-xs font-bold text-slate-800 truncate">
+                            {catMain}
+                          </span>
+                          {(subCat || prodSubCat) && (
+                            <span className="text-[10.5px] font-semibold text-indigo-600 truncate flex items-center gap-1">
+                              {subCat && <span>{subCat}</span>}
+                              {subCat && prodSubCat && <span className="text-slate-300">›</span>}
+                              {prodSubCat && <span className="text-purple-600">{prodSubCat}</span>}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Price Range */}
+                      <td className="py-3.5 px-5 align-middle font-bold text-slate-850 font-mono text-xs">
+                        {p.minPrice === p.maxPrice
+                          ? `₹${p.minPrice}`
+                          : `₹${p.minPrice} - ₹${p.maxPrice}`}
+                      </td>
+
+                      {/* Discount Details */}
+                      <td className="py-3.5 px-5 align-middle">
+                        {p.minDiscount === p.maxDiscount ? (
+                          <span className="inline-block px-2.5 py-0.5 text-[10px] font-extrabold bg-emerald-50 text-emerald-700 rounded-md border border-emerald-100">
+                            {p.maxDiscount}% Off
+                          </span>
+                        ) : (
+                          <span className="inline-block px-2.5 py-0.5 text-[10px] font-extrabold bg-emerald-50 text-emerald-700 rounded-md border border-emerald-100">
+                            {p.minDiscount}% - {p.maxDiscount}% Off
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Seller Name */}
+                      <td className="py-3.5 px-5 align-middle text-xs font-semibold text-slate-700">
+                        <span className="truncate max-w-[130px] block" title={sellerName}>
+                          {sellerName}
                         </span>
-                      )}
-                    </td>
+                      </td>
 
-                    {/* Category Details */}
-                    <td className="py-4 px-6 align-middle text-slate-600 font-medium">
-                      {p.categoryDetails?.name || "Uncategorized"}
-                    </td>
+                      {/* Inventory Badge */}
+                      <td className="py-3.5 px-5 align-middle">
+                        {stockVal === 0 ? (
+                          <span className="inline-block px-2 py-0.5 text-[10px] font-extrabold bg-rose-50 text-rose-700 rounded-md border border-rose-100">
+                            Out of Stock
+                          </span>
+                        ) : stockVal !== undefined && stockVal !== null ? (
+                          <span className="inline-block px-2 py-0.5 text-[10px] font-extrabold bg-blue-50 text-blue-700 rounded-md border border-blue-100">
+                            {stockVal} Units
+                          </span>
+                        ) : (
+                          <span className="inline-block px-2 py-0.5 text-[10px] font-extrabold bg-emerald-50 text-emerald-700 rounded-md border border-emerald-100">
+                            In Stock
+                          </span>
+                        )}
+                      </td>
 
-                    {/* Price Range */}
-                    <td className="py-4 px-6 align-middle font-semibold text-slate-700 font-mono">
-                      {p.minPrice === p.maxPrice
-                        ? `₹${p.minPrice}`
-                        : `₹${p.minPrice} - ₹${p.maxPrice}`}
-                    </td>
-
-                    {/* Discount Details */}
-                    <td className="py-4 px-6 align-middle">
-                      {p.minDiscount === p.maxDiscount ? (
-                        <span className="inline-block px-2.5 py-0.5 text-[11px] font-bold bg-emerald-50 text-emerald-700 rounded-md border border-emerald-100/50">
-                          {p.maxDiscount}% Off
+                      {/* Status Badge */}
+                      <td className="py-3.5 px-5 align-middle">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-2xs font-extrabold uppercase tracking-wide border ${
+                          p.status === "active"
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200/60"
+                            : "bg-slate-100 text-slate-600 border-slate-200"
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            p.status === "active" ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
+                          }`} />
+                          {p.status === "active" ? "Active" : "Inactive"}
                         </span>
-                      ) : (
-                        <span className="inline-block px-2.5 py-0.5 text-[11px] font-bold bg-emerald-50 text-emerald-700 rounded-md border border-emerald-100/50">
-                          {p.minDiscount}% - {p.maxDiscount}% Off
-                        </span>
-                      )}
-                    </td>
+                      </td>
 
-                    {/* Status Badge */}
-                    <td className="py-4 px-6 align-middle">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${
-                        p.status === "active"
-                          ? "bg-emerald-50/50 text-emerald-700 border-emerald-200/50"
-                          : "bg-slate-100 text-slate-600 border-slate-200"
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${
-                          p.status === "active" ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
-                        }`} />
-                        {p.status === "active" ? "Active" : "Inactive"}
-                      </span>
-                    </td>
+                      {/* Created Date */}
+                      <td className="py-3.5 px-5 align-middle text-slate-500 text-xs font-medium whitespace-nowrap">
+                        {moment((p as any).createdAt || (p as any).createdAt_EP || p.mfg).isValid()
+                          ? moment((p as any).createdAt || (p as any).createdAt_EP || p.mfg).format("DD MMM YYYY")
+                          : "—"}
+                      </td>
 
-                    {/* Created Date */}
-                    <td className="py-4 px-6 align-middle text-slate-500 text-xs font-medium">
-                      {moment((p as any).createdAt || p.mfg).isValid()
-                        ? moment((p as any).createdAt || p.mfg).format("DD MMM YYYY")
-                        : "—"}
-                    </td>
+                      {/* Floating Dropdown Actions Menu */}
+                      <td className="py-3.5 px-5 align-middle text-center relative" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveMenuId(activeMenuId === p._id ? null : p._id);
+                          }}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all focus:outline-none cursor-pointer flex items-center justify-center mx-auto"
+                        >
+                          <FiMoreVertical size={16} />
+                        </button>
 
-                    {/* Floating Dropdown Actions Menu */}
-                    <td className="py-4 px-6 align-middle text-center relative">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveMenuId(activeMenuId === p._id ? null : p._id);
-                        }}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all focus:outline-none cursor-pointer flex items-center justify-center mx-auto"
-                      >
-                        <FiMoreVertical size={16} />
-                      </button>
-
-                      {activeMenuId === p._id && (
-                        <>
-                          <div
-                            className="fixed inset-0 z-10"
-                            onClick={() => setActiveMenuId(null)}
-                          />
-                          <div className="absolute right-6 mt-1 w-44 bg-white border border-slate-100 rounded-xl shadow-xl py-1.5 z-20 animate-in fade-in slide-in-from-top-1 duration-150 text-left">
-                            <button
-                              onClick={() => {
-                                setActiveMenuId(null);
-                                setProductData(p);
-                                setOpenDetail(true);
-                              }}
-                              className="flex items-center gap-2.5 w-full px-4 py-2 text-xs text-slate-600 hover:bg-slate-50 transition-colors font-medium cursor-pointer"
-                            >
-                              <FiEye size={14} className="text-slate-400" />
-                              <span>View Details</span>
-                            </button>
-                            <button
-                              onClick={() => {
-                                setActiveMenuId(null);
-                                handleEditProduct(p);
-                              }}
-                              className="flex items-center gap-2.5 w-full px-4 py-2 text-xs text-slate-600 hover:bg-slate-50 transition-colors font-medium cursor-pointer"
-                            >
-                              <FiEdit2 size={14} className="text-slate-400" />
-                              <span>Edit Product</span>
-                            </button>
-                            <button
-                              onClick={() => {
-                                setActiveMenuId(null);
-                                handleToggleStatus(p);
-                              }}
-                              className="flex items-center gap-2.5 w-full px-4 py-2 text-xs text-slate-600 hover:bg-slate-50 transition-colors font-medium cursor-pointer"
-                            >
-                              {p.status === "active" ? (
-                                <>
-                                  <FiXCircle size={14} className="text-slate-400" />
-                                  <span>Deactivate</span>
-                                </>
-                              ) : (
-                                <>
-                                  <FiCheckCircle size={14} className="text-slate-400" />
-                                  <span>Activate</span>
-                                </>
-                              )}
-                            </button>
-                            <div className="h-px bg-slate-100 my-1" />
-                            <button
-                              onClick={() => {
-                                setActiveMenuId(null);
-                                handleDeleteProduct(p);
-                              }}
-                              className="flex items-center gap-2.5 w-full px-4 py-2 text-xs text-red-600 hover:bg-red-50 transition-colors font-semibold cursor-pointer"
-                            >
-                              <FiTrash2 size={14} className="text-red-400" />
-                              <span>Delete</span>
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={8} className="text-center py-10 text-slate-400 font-medium">
-                    No products found matching the filters.
-                  </td>
-                </tr>
-              )}
+                        {activeMenuId === p._id && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-10"
+                              onClick={() => setActiveMenuId(null)}
+                            />
+                            <div className="absolute right-6 mt-1 w-44 bg-white border border-slate-150 rounded-xl shadow-xl py-1.5 z-20 animate-in fade-in slide-in-from-top-1 duration-150 text-left">
+                              <button
+                                onClick={() => {
+                                  setActiveMenuId(null);
+                                  setProductData(p);
+                                  setOpenDetail(true);
+                                }}
+                                className="flex items-center gap-2.5 w-full px-4 py-2 text-xs text-slate-700 hover:bg-indigo-50/50 hover:text-indigo-600 transition-colors font-semibold cursor-pointer"
+                              >
+                                <FiEye size={14} className="text-slate-400" />
+                                <span>View Details</span>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setActiveMenuId(null);
+                                  handleEditProduct(p);
+                                }}
+                                className="flex items-center gap-2.5 w-full px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium cursor-pointer"
+                              >
+                                <FiEdit2 size={14} className="text-slate-400" />
+                                <span>Edit Product</span>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setActiveMenuId(null);
+                                  handleToggleStatus(p);
+                                }}
+                                className="flex items-center gap-2.5 w-full px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium cursor-pointer"
+                              >
+                                {p.status === "active" ? (
+                                  <>
+                                    <FiXCircle size={14} className="text-slate-400" />
+                                    <span>Deactivate</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <FiCheckCircle size={14} className="text-slate-400" />
+                                    <span>Activate</span>
+                                  </>
+                                )}
+                              </button>
+                              <div className="h-px bg-slate-100 my-1" />
+                              <button
+                                onClick={() => {
+                                  setActiveMenuId(null);
+                                  handleDeleteProduct(p);
+                                }}
+                                className="flex items-center gap-2.5 w-full px-4 py-2 text-xs text-red-600 hover:bg-red-50 transition-colors font-semibold cursor-pointer"
+                              >
+                                <FiTrash2 size={14} className="text-red-400" />
+                                <span>Delete</span>
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                });
+              })()}
             </tbody>
           </table>
         </div>

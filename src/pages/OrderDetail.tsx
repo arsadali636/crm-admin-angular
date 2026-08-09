@@ -41,6 +41,7 @@ export const OrderDetail = () => {
       const res = await httpClient.get(getCompleteUrlV1(`order/${id}`));
       if (res.ok) {
         const json = await res.json();
+        console.log("ORDER_API_DATA:", JSON.stringify(json.data[0]));
         setOrder(json.data[0]);
       }
     } catch (err) {

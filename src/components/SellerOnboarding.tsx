@@ -54,7 +54,7 @@ export const SellerOnboardingCard: React.FC<SellerOnboardingCardProps> = ({
             <div>
               <span className="font-semibold text-slate-400">Owner:</span>{" "}
               <span className="font-bold text-slate-700 truncate inline-block max-w-[150px] align-bottom">
-                {req.firstName} {req.lastName}
+                {req.requester?.firstName || req.firstName || ""} {req.requester?.lastName || req.lastName || ""}
               </span>
             </div>
           </div>

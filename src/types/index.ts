@@ -149,9 +149,12 @@ export interface IUser {
   seller?: {
     businessName: string;
     address?: string;
-    aadhaarNumber: string;
-    gstNumber: string;
+    aadhaarNumber?: string;
+    gstNumber?: string;
     pan?: string;
+    panNumber?: string;
+    typeOfBusiness?: string | string[];
+    industry?: string;
     businessType?: string;
     businessCategory?: string;
     verificationStatus?: string;
@@ -285,4 +288,137 @@ export interface IBannerItem {
   contentName: string;
   metadata: IBannerMetadata;
 }
+
+export interface WalletRedeemMetadata {
+  amount?: number;
+  manualTranferSource?: string;
+  remarks?: string;
+  source?: string;
+  utrNumber?: string;
+  screenshotUrl?: string;
+  paymentMode?: string;
+  adminNote?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  walletTransactionId?: string;
+  [key: string]: any;
+}
+
+export interface WalletPayoutDetails {
+  upi?: {
+    upiId?: string;
+  };
+  bankAccount?: {
+    accountHolderName?: string;
+    accountNumber?: string;
+    ifsc?: string;
+  };
+}
+
+export interface WalletRedeemRequester {
+  _id: string;
+  email?: string;
+  role?: string[];
+  status?: string;
+  firstName?: string;
+  lastName?: string;
+  phoneNumber?: string;
+  seller?: any;
+  promotorCommission?: number;
+  connectorCommission?: number;
+  addresses?: any[];
+  gstNumber?: string;
+  payoutDetails?: WalletPayoutDetails;
+  profileImg?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  createdAt_EP?: number;
+  updatedAt_EP?: number;
+}
+
+export interface WalletRedeemRequest {
+  _id: string;
+  requesterId: string;
+  type: string;
+  isRequestToAdmin?: boolean;
+  metadata?: WalletRedeemMetadata;
+  status: "pending" | "accept" | "reject" | string;
+  reason?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  createdAt_EP?: number;
+  updatedAt_EP?: number;
+  requester?: WalletRedeemRequester;
+}
+
+export interface WalletRedeemPagination {
+  totalCount: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface WalletHistoryMetadata {
+  amount?: number;
+  manualTranferSource?: string;
+  remarks?: string;
+  source?: string;
+  utrNumber?: string;
+  paymentMode?: string;
+  screenshotUrl?: string;
+  adminNote?: string;
+  requestId?: string;
+  requestType?: string;
+  approvedBy?: string;
+  manualPayout?: boolean;
+  payoutSkipped?: boolean;
+  payoutSkippedReason?: string;
+  orderId?: string;
+  numericOrderId?: number;
+  orderItemIds?: string[];
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  paymentStatus?: string;
+  [key: string]: any;
+}
+
+export interface WalletHistoryItem {
+  _id: string;
+  walletId?: string;
+  userId?: string;
+  direction: "credit" | "debit" | string;
+  type: "add_money" | "seller_token_debit" | "redeem" | string;
+  amount: number;
+  balanceBefore?: number;
+  balanceAfter?: number;
+  currency?: string;
+  status: "success" | string;
+  source?: string;
+  referenceType?: string;
+  referenceId?: string;
+  idempotencyKey?: string;
+  initiatedBy?: string;
+  remarks?: string;
+  metadata?: WalletHistoryMetadata;
+  createdAt_EP?: number;
+  updatedAt_EP?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface WalletHistoryPagination {
+  totalCount: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface WalletHistoryResponse {
+  type: string;
+  message: string;
+  data: WalletHistoryItem[];
+  pagination?: WalletHistoryPagination;
+}
+
+
 

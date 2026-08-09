@@ -1,318 +1,746 @@
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import Breadcrumb from "../components/Breadcrumb";
-import { walletStore, WithdrawalRequest } from "../utils/walletStore";
+import { httpClient } from "../services/ApiService";
+import { getCompleteUrlV1 } from "../utils";
+import { WalletRedeemRequest, WalletRedeemPagination } from "../types";
+import { formatIndianCurrency, formatNumberInIN, maskBankAccount } from "../utils/utils";
 import moment from "moment";
-import { Check, X, Pause, RefreshCw, CheckCircle2, ChevronRight } from "lucide-react";
-import { Button } from "../components/Button";
+import {
+  RefreshCw,
+  Search,
+  Filter,
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
+  User,
+  Eye,
+  Check,
+  X,
+  History,
+  Copy,
+  ChevronLeft,
+  ChevronRight,
+  Wallet,
+} from "lucide-react";
 
-export const WalletWithdrawals = () => {
-  const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([]);
-  const [activeTab, setActiveTab] = useState<"Pending" | "Approved" | "Rejected" | "Processing" | "Completed">("Pending");
+import { WalletRedeemActionModal, WalletRedeemActionPayload } from "../components/wallet/WalletRedeemActionModal";
+import { WalletRedeemDetailDrawer } from "../components/wallet/WalletRedeemDetailDrawer";
+import { WalletUserHistoryDrawer } from "../components/wallet/WalletUserHistoryDrawer";
 
-  // Interaction notes
-  const [isPromptOpen, setIsPromptOpen] = useState(false);
-  const [currentRequest, setCurrentRequest] = useState<WithdrawalRequest | null>(null);
-  const [promptAction, setPromptAction] = useState<"Approved" | "Rejected" | "Hold" | "Completed">("Approved");
-  const [adminNotes, setAdminNotes] = useState("");
-  const [successMsg, setSuccessMsg] = useState("");
+export const WalletWithdrawals: React.FC = () => {
+  // Main Data States
+  const [requests, setRequests] = useState<WalletRedeemRequest[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const loadData = () => {
-    setWithdrawals(walletStore.getWithdrawals());
+  // Filters & Tabs
+  const [activeStatusTab, setActiveStatusTab] = useState<"all" | "pending" | "accept" | "reject">("pending");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [paymentModeFilter, setPaymentModeFilter] = useState<string>("all");
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  const [pagination, setPagination] = useState<WalletRedeemPagination>({
+    totalCount: 0,
+    page: 1,
+    limit: 10,
+    totalPages: 1,
+  });
+
+  // Action Modal State (Accept / Reject Confirmation)
+  const [actionModalState, setActionModalState] = useState<{
+    isOpen: boolean;
+    request: WalletRedeemRequest | null;
+    actionType: "accept" | "reject" | null;
+    isProcessing: boolean;
+  }>({
+    isOpen: false,
+    request: null,
+    actionType: null,
+    isProcessing: false,
+  });
+
+  // Drawer States
+  const [detailDrawerRequest, setDetailDrawerRequest] = useState<WalletRedeemRequest | null>(null);
+  const [historyDrawerState, setHistoryDrawerState] = useState<{
+    isOpen: boolean;
+    targetUserId: string | null;
+    requesterData?: any;
+    refreshKey: number;
+  }>({
+    isOpen: false,
+    targetUserId: null,
+    refreshKey: 0,
+  });
+
+  // Toast Notification State
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
   };
+
+  // Fetch Requests from API (Source of Truth)
+  const fetchRedemptionRequests = useCallback(async (page = 1, status = activeStatusTab) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const queryParams: Record<string, string> = {
+        type: "wallet_redeem",
+        page: String(page),
+        limit: "10",
+      };
+
+      if (status !== "all") {
+        queryParams.status = status;
+      }
+
+      const res = await httpClient.get(getCompleteUrlV1("request/admin-requests", queryParams));
+
+      if (res.ok) {
+        const json = await res.json();
+        setRequests(json.data || []);
+        if (json.pagination) {
+          setPagination(json.pagination);
+        }
+      } else {
+        setError("Failed to fetch wallet redemption requests from server.");
+      }
+    } catch (err) {
+      console.error("Error fetching redemption requests:", err);
+      setError("Network connection error. Unable to load withdrawal requests.");
+    } finally {
+      setLoading(false);
+    }
+  }, [activeStatusTab]);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    setCurrentPage(1);
+    fetchRedemptionRequests(1, activeStatusTab);
+  }, [activeStatusTab, fetchRedemptionRequests]);
 
-  const filteredWithdrawals = useMemo(() => {
-    // If active tab is Approved, show both Approved & Hold if they aren't completed, or keep it strict
-    // Let's filter strictly by status.
-    // If active tab is Approved, show "Approved" status.
-    // If active tab is Completed, show "Completed" status.
-    // If active tab is Rejected, show "Rejected" status.
-    // If active tab is Processing, show "Processing" status.
-    // If active tab is Pending, let's show "Pending" AND "Hold" status so that admins can easily see everything needing action!
-    return withdrawals.filter((w) => {
-      if (activeTab === "Pending") {
-        return w.status === "Pending" || w.status === "Hold";
-      }
-      return w.status === activeTab;
-    });
-  }, [withdrawals, activeTab]);
-
-  const openActionPrompt = (req: WithdrawalRequest, action: typeof promptAction) => {
-    setCurrentRequest(req);
-    setPromptAction(action);
-    setAdminNotes(req.notes || "");
-    setIsPromptOpen(true);
+  const handlePageChange = (newPage: number) => {
+    setCurrentPage(newPage);
+    fetchRedemptionRequests(newPage, activeStatusTab);
   };
 
-  const handleExecuteAction = () => {
-    if (!currentRequest) return;
+  // Client Search & Payment Mode Filtering
+  const filteredRequests = useMemo(() => {
+    return requests.filter((req) => {
+      // 1. Search Query Filter
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const reqId = req._id.toLowerCase();
+        const uId = (req.requesterId || "").toLowerCase();
+        const fName = (req.requester?.firstName || "").toLowerCase();
+        const lName = (req.requester?.lastName || "").toLowerCase();
+        const email = (req.requester?.email || "").toLowerCase();
+        const phone = (req.requester?.phoneNumber || "").toLowerCase();
 
-    let targetStatus: WithdrawalRequest["status"] = "Pending";
-    if (promptAction === "Approved") targetStatus = "Approved";
-    else if (promptAction === "Rejected") targetStatus = "Rejected";
-    else if (promptAction === "Hold") targetStatus = "Hold";
-    else if (promptAction === "Completed") targetStatus = "Completed";
+        const matchesSearch =
+          reqId.includes(q) ||
+          uId.includes(q) ||
+          fName.includes(q) ||
+          lName.includes(q) ||
+          email.includes(q) ||
+          phone.includes(q);
 
-    const success = walletStore.updateWithdrawalStatus(currentRequest.id, targetStatus, adminNotes);
+        if (!matchesSearch) return false;
+      }
 
-    if (success) {
-      setSuccessMsg(`Successfully marked Request #${currentRequest.id} as ${targetStatus}.`);
-      setIsPromptOpen(false);
-      loadData();
-      setTimeout(() => setSuccessMsg(""), 3000);
+      // 2. Payment Mode Filter
+      if (paymentModeFilter !== "all") {
+        const mode = (
+          req.metadata?.paymentMode ||
+          req.metadata?.manualTranferSource ||
+          req.metadata?.source ||
+          ""
+        ).toLowerCase();
+
+        if (!mode.includes(paymentModeFilter.toLowerCase())) return false;
+      }
+
+      return true;
+    });
+  }, [requests, searchQuery, paymentModeFilter]);
+
+  // Page Summary Statistics
+  const pageStats = useMemo(() => {
+    const totalOnPage = requests.length;
+    const pendingOnPage = requests.filter((r) => r.status === "pending").length;
+    const acceptedOnPage = requests.filter((r) => r.status === "accept").length;
+    const rejectedOnPage = requests.filter((r) => r.status === "reject" || r.status === "rejected").length;
+
+    const pendingAmountPage = requests
+      .filter((r) => r.status === "pending")
+      .reduce((sum, r) => sum + (Number(r.metadata?.amount) || 0), 0);
+
+    const acceptedAmountPage = requests
+      .filter((r) => r.status === "accept")
+      .reduce((sum, r) => sum + (Number(r.metadata?.amount) || 0), 0);
+
+    return {
+      totalOnPage,
+      pendingOnPage,
+      acceptedOnPage,
+      rejectedOnPage,
+      pendingAmountPage,
+      acceptedAmountPage,
+    };
+  }, [requests]);
+
+  // Open Action Modal (Accept / Reject)
+  const openActionModal = (request: WalletRedeemRequest, actionType: "accept" | "reject") => {
+    setActionModalState({
+      isOpen: true,
+      request,
+      actionType,
+      isProcessing: false,
+    });
+  };
+
+  // Execute Accept / Reject via Backend API (PUT request)
+  const handleExecuteAction = async (payload: WalletRedeemActionPayload) => {
+    try {
+      setActionModalState((prev) => ({ ...prev, isProcessing: true }));
+
+      const res = await httpClient.put(getCompleteUrlV1("request"), payload);
+
+      if (res.ok) {
+        showToast(
+          `Successfully ${payload.status === "accept" ? "accepted" : "rejected"} payout request #${payload.id}.`,
+          "success"
+        );
+        setActionModalState({ isOpen: false, request: null, actionType: null, isProcessing: false });
+        if (detailDrawerRequest?._id === payload.id) {
+          setDetailDrawerRequest(null);
+        }
+
+        // Re-fetch list directly from backend (Source of Truth)
+        fetchRedemptionRequests(currentPage, activeStatusTab);
+
+        // Re-fetch history if history drawer is currently open
+        if (historyDrawerState.isOpen) {
+          setHistoryDrawerState((prev) => ({ ...prev, refreshKey: prev.refreshKey + 1 }));
+        }
+      } else {
+        const errorJson = await res.json().catch(() => ({}));
+        showToast(errorJson.message || `Failed to ${payload.status} payout request.`, "error");
+      }
+    } catch (err) {
+      console.error(`Error processing ${payload.status} request:`, err);
+      showToast(`Network error performing ${payload.status} action.`, "error");
+    } finally {
+      setActionModalState((prev) => ({ ...prev, isProcessing: false }));
     }
   };
 
+  // Open History Drawer
+  const openUserHistory = (requesterId: string, requesterObj?: any) => {
+    setHistoryDrawerState((prev) => ({
+      isOpen: true,
+      targetUserId: requesterId,
+      requesterData: requesterObj,
+      refreshKey: prev.refreshKey + 1,
+    }));
+  };
+
+  // Copy to clipboard helper
+  const handleCopyText = (text: string, label = "ID") => {
+    navigator.clipboard.writeText(text);
+    showToast(`Copied ${label} to clipboard!`, "success");
+  };
+
   return (
-    <div className="p-3 space-y-6">
-      {/* ── Breadcrumb ── */}
-      <div className="bg-white rounded-xl px-5 py-3 shadow-[0_1px_2px_rgba(0,0,0,0.04)] border border-slate-100 flex justify-between items-center">
-        <Breadcrumb
-          items={[
-            { label: "Dashboard", to: "/dashboard" },
-            { label: "Wallet Module", to: "/wallet/dashboard" },
-            { label: "Withdrawal Requests", to: "/wallet/withdrawals" },
-          ]}
-        />
+    <div className="min-h-screen bg-slate-50/50 p-3 sm:p-6 lg:p-8 space-y-6">
+      {/* ── Breadcrumb & Header ── */}
+      <div className="bg-white rounded-2xl px-5 py-3.5 shadow-xs border border-slate-200/80 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+        <div>
+          <Breadcrumb
+            items={[
+              { label: "Dashboard", to: "/dashboard" },
+              { label: "Wallet Module", to: "/wallet/dashboard" },
+              { label: "Withdrawal Requests", to: "/wallet/withdrawals" },
+            ]}
+          />
+          <h1 className="text-xl font-bold text-slate-900 mt-1">Withdrawal Requests</h1>
+          <p className="text-xs text-slate-500">
+            Manage wallet redemption requests, payouts and redemption history.
+          </p>
+        </div>
+
         <button
-          onClick={loadData}
-          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-slate-600 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition-all cursor-pointer"
+          onClick={() => fetchRedemptionRequests(currentPage, activeStatusTab)}
+          disabled={loading}
+          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-xs cursor-pointer disabled:opacity-60"
         >
-          <RefreshCw size={12} />
+          <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${loading ? "animate-spin text-blue-600" : ""}`} />
           <span>Refresh List</span>
         </button>
       </div>
 
-      {successMsg && (
-        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-700 text-xs font-bold flex items-center gap-2">
-          <CheckCircle2 size={16} className="text-emerald-600 animate-bounce" />
-          <span>{successMsg}</span>
+      {/* Toast Alert */}
+      {toast && (
+        <div
+          className={`p-4 rounded-2xl border text-xs font-bold flex items-center justify-between shadow-md animate-in slide-in-from-top-2 duration-200 ${
+            toast.type === "success"
+              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+              : "bg-rose-50 text-rose-800 border-rose-200"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {toast.type === "success" ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-rose-600" />
+            )}
+            <span>{toast.message}</span>
+          </div>
+          <button onClick={() => setToast(null)} className="p-1 hover:bg-black/5 rounded-lg">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
-      {/* ── Status Tabs ── */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-        <div className="border-b border-slate-100 bg-slate-50/50 flex p-2 gap-1 overflow-x-auto scrollbar-none">
-          {[
-            { id: "Pending", label: "Pending / On Hold" },
-            { id: "Processing", label: "Processing" },
-            { id: "Approved", label: "Approved" },
-            { id: "Completed", label: "Completed" },
-            { id: "Rejected", label: "Rejected" },
-          ].map((tab) => {
-            const count = withdrawals.filter((w) => {
-              if (tab.id === "Pending") return w.status === "Pending" || w.status === "Hold";
-              return w.status === tab.id;
-            }).length;
-
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  activeTab === tab.id
-                    ? "bg-white text-blue-600 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700 hover:bg-white/40"
-                }`}
-              >
-                <span>{tab.label}</span>
-                <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold ${
-                  activeTab === tab.id
-                    ? "bg-blue-50 text-blue-600"
-                    : "bg-slate-100 text-slate-500"
-                }`}>
-                  {count}
-                </span>
-              </button>
-            );
-          })}
+      {/* ── Summary KPI Cards (Page / Available Scope) ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="p-4 bg-white border border-slate-200/80 rounded-2xl shadow-xs">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+              Total Requests
+            </span>
+            <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+              <Wallet className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <span className="text-xl font-bold text-slate-900 block">
+            {formatNumberInIN(pagination.totalCount || pageStats.totalOnPage)}
+          </span>
+          <span className="text-[10px] text-slate-400">Total in view scope</span>
         </div>
 
+        <div className="p-4 bg-white border border-slate-200/80 rounded-2xl shadow-xs">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider">
+              Pending
+            </span>
+            <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+              <Clock className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <span className="text-xl font-bold text-amber-900 block">
+            {formatNumberInIN(pageStats.pendingOnPage)}
+          </span>
+          <span className="text-[10px] text-slate-400">Page pending count</span>
+        </div>
+
+        <div className="p-4 bg-white border border-slate-200/80 rounded-2xl shadow-xs">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">
+              Accepted
+            </span>
+            <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <span className="text-xl font-bold text-emerald-900 block">
+            {formatNumberInIN(pageStats.acceptedOnPage)}
+          </span>
+          <span className="text-[10px] text-slate-400">Page accepted count</span>
+        </div>
+
+        <div className="p-4 bg-white border border-slate-200/80 rounded-2xl shadow-xs">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold text-rose-700 uppercase tracking-wider">
+              Rejected
+            </span>
+            <div className="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
+              <AlertTriangle className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <span className="text-xl font-bold text-rose-900 block">
+            {formatNumberInIN(pageStats.rejectedOnPage)}
+          </span>
+          <span className="text-[10px] text-slate-400">Page rejected count</span>
+        </div>
+
+        <div className="p-4 bg-white border border-slate-200/80 rounded-2xl shadow-xs">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider">
+              Pending Amount
+            </span>
+            <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+              <Clock className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <span className="text-sm font-extrabold text-amber-900 block truncate">
+            {formatIndianCurrency(pageStats.pendingAmountPage)}
+          </span>
+          <span className="text-[10px] text-slate-400">Page pending total</span>
+        </div>
+
+        <div className="p-4 bg-white border border-slate-200/80 rounded-2xl shadow-xs">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">
+              Accepted Amount
+            </span>
+            <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <span className="text-sm font-extrabold text-emerald-900 block truncate">
+            {formatIndianCurrency(pageStats.acceptedAmountPage)}
+          </span>
+          <span className="text-[10px] text-slate-400">Page accepted total</span>
+        </div>
+      </div>
+
+      {/* ── Status Tabs & Search Controls ── */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-3 border-b border-slate-100">
+          {/* Status Tabs */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+            {[
+              { id: "all", label: "All Requests" },
+              { id: "pending", label: "Pending" },
+              { id: "accept", label: "Accepted" },
+              { id: "reject", label: "Rejected" },
+            ].map((tab) => {
+              const isActive = activeStatusTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveStatusTab(tab.id as any)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                    isActive
+                      ? "bg-blue-600 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900"
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Search & Mode Filter */}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Search Box */}
+            <div className="relative flex-1 sm:w-64">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search user, email, phone, ID..."
+                className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Payment Mode Filter */}
+            <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 border border-slate-200 rounded-xl text-xs">
+              <Filter className="w-3.5 h-3.5 text-slate-500" />
+              <select
+                value={paymentModeFilter}
+                onChange={(e) => setPaymentModeFilter(e.target.value)}
+                className="bg-transparent text-slate-700 font-semibold focus:outline-none cursor-pointer"
+              >
+                <option value="all">All Modes</option>
+                <option value="upi">UPI</option>
+                <option value="bank">Bank Account</option>
+                <option value="account">Account</option>
+                <option value="manual">Manual</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Error message */}
+        {error && (
+          <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-semibold flex items-center justify-between">
+            <span>{error}</span>
+            <button
+              onClick={() => fetchRedemptionRequests(currentPage, activeStatusTab)}
+              className="px-3 py-1 bg-white border border-rose-300 rounded-lg text-rose-800 font-bold hover:bg-rose-100 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* ── Table Grid ── */}
-        <div className="p-6">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200/60 font-semibold text-slate-500 uppercase tracking-wider">
-                  <th className="px-4 py-3.5">User Details</th>
-                  <th className="px-4 py-3.5">Bank Payout Info</th>
-                  <th className="px-4 py-3.5">UPI Payout Info</th>
-                  <th className="px-4 py-3.5 text-right">Requested Payout</th>
-                  <th className="px-4 py-3.5">Requested Date</th>
-                  <th className="px-4 py-3.5">Status</th>
-                  <th className="px-4 py-3.5 text-center">Settlement Actions</th>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50/80 text-slate-500 font-semibold uppercase text-[10px] tracking-wider border-b border-slate-100">
+                <th className="py-3.5 px-4">Request ID</th>
+                <th className="py-3.5 px-4">User Information</th>
+                <th className="py-3.5 px-4 text-right">Amount</th>
+                <th className="py-3.5 px-4">Payment Mode</th>
+                <th className="py-3.5 px-4">Requested Date</th>
+                <th className="py-3.5 px-4">Payout Method</th>
+                <th className="py-3.5 px-4">Status</th>
+                <th className="py-3.5 px-4 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 font-medium">
+              {loading ? (
+                [...Array(5)].map((_, i) => (
+                  <tr key={i} className="animate-pulse">
+                    <td className="py-4 px-4"><div className="h-4 bg-slate-200 rounded w-20"></div></td>
+                    <td className="py-4 px-4"><div className="h-4 bg-slate-200 rounded w-36"></div></td>
+                    <td className="py-4 px-4"><div className="h-4 bg-slate-200 rounded w-16 ml-auto"></div></td>
+                    <td className="py-4 px-4"><div className="h-4 bg-slate-200 rounded w-16"></div></td>
+                    <td className="py-4 px-4"><div className="h-4 bg-slate-200 rounded w-24"></div></td>
+                    <td className="py-4 px-4"><div className="h-4 bg-slate-200 rounded w-28"></div></td>
+                    <td className="py-4 px-4"><div className="h-4 bg-slate-200 rounded w-16"></div></td>
+                    <td className="py-4 px-4"><div className="h-6 bg-slate-200 rounded w-20 mx-auto"></div></td>
+                  </tr>
+                ))
+              ) : filteredRequests.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="text-center py-12 text-slate-400 text-xs font-semibold">
+                    No redemption requests found for the selected filters.
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                {filteredWithdrawals.length > 0 ? (
-                  filteredWithdrawals.map((w) => (
-                    <tr key={w.id} className="hover:bg-slate-50">
-                      {/* User */}
-                      <td className="px-4 py-3.5">
-                        <div>
-                          <p className="font-bold text-slate-800 text-[13px]">{w.userName}</p>
-                          <p className="text-[10px] text-slate-400 font-semibold uppercase">{w.role} • {w.walletId}</p>
+              ) : (
+                filteredRequests.map((req) => {
+                  const requester = req.requester;
+                  const fullName = requester
+                    ? [requester.firstName, requester.lastName].filter(Boolean).join(" ") || "User"
+                    : "User";
+
+                  const payout = requester?.payoutDetails;
+                  const upiId = payout?.upi?.upiId;
+                  const bankAcc = payout?.bankAccount?.accountNumber;
+                  const maskedBank = maskBankAccount(bankAcc);
+
+                  const statusPill =
+                    req.status === "accept"
+                      ? { label: "Accepted", class: "bg-emerald-50 text-emerald-700 border-emerald-200", Icon: CheckCircle2 }
+                      : req.status === "reject" || req.status === "rejected"
+                      ? { label: "Rejected", class: "bg-rose-50 text-rose-700 border-rose-200", Icon: AlertTriangle }
+                      : { label: "Pending", class: "bg-amber-50 text-amber-700 border-amber-200", Icon: Clock };
+
+                  const StatusIconComp = statusPill.Icon;
+                  const requesterId = req.requesterId || requester?._id;
+
+                  return (
+                    <tr key={req._id} className="hover:bg-slate-50/80 transition-colors">
+                      {/* Request ID */}
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono font-bold text-slate-800 text-[11px]" title={req._id}>
+                            {req._id.substring(0, 10)}...
+                          </span>
+                          <button
+                            onClick={() => handleCopyText(req._id, "Request ID")}
+                            className="p-1 text-slate-400 hover:text-blue-600 rounded transition-colors cursor-pointer"
+                            title="Copy full Request ID"
+                          >
+                            <Copy className="w-3 h-3" />
+                          </button>
                         </div>
                       </td>
 
-                      {/* Bank Info */}
-                      <td className="px-4 py-3.5">
-                        <p className="font-bold text-slate-800">{w.bankName}</p>
-                        <p className="text-[10px] text-slate-400 font-mono font-semibold">{w.accountNumber}</p>
-                      </td>
-
-                      {/* UPI Info */}
-                      <td className="px-4 py-3.5 font-mono font-semibold text-slate-600">
-                        {w.upi || <span className="text-slate-300">—</span>}
+                      {/* User Info */}
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0 flex items-center justify-center text-slate-600 font-bold text-xs">
+                            {requester?.profileImg ? (
+                              <img
+                                src={requester.profileImg}
+                                alt={fullName}
+                                className="w-8 h-8 rounded-full object-cover"
+                              />
+                            ) : (
+                              <User className="w-4 h-4" />
+                            )}
+                          </div>
+                          <div className="overflow-hidden">
+                            <span className="font-bold text-slate-900 block truncate max-w-[150px]" title={fullName}>
+                              {fullName}
+                            </span>
+                            <span className="text-[10px] text-slate-400 block truncate max-w-[150px]" title={requester?.email}>
+                              {requester?.email || requester?.phoneNumber || "—"}
+                            </span>
+                          </div>
+                        </div>
                       </td>
 
                       {/* Amount */}
-                      <td className="px-4 py-3.5 text-right font-black text-slate-800">
-                        ₹{w.amount.toLocaleString("en-IN")}
+                      <td className="py-3 px-4 text-right font-extrabold text-slate-900 text-sm">
+                        {formatIndianCurrency(req.metadata?.amount || 0)}
                       </td>
 
-                      {/* Date */}
-                      <td className="px-4 py-3.5 text-slate-400 font-semibold">
-                        {moment(w.requestedDate).format("DD MMM YYYY, hh:mm A")}
+                      {/* Payment Mode */}
+                      <td className="py-3 px-4 capitalize font-semibold text-slate-700">
+                        {req.metadata?.paymentMode || req.metadata?.manualTranferSource || req.metadata?.source || "—"}
                       </td>
 
-                      {/* Status */}
-                      <td className="px-4 py-3.5">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase ${
-                          w.status === "Completed"
-                            ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
-                            : w.status === "Pending"
-                            ? "bg-amber-50 text-amber-700 border border-amber-100"
-                            : w.status === "Processing"
-                            ? "bg-blue-50 text-blue-700 border border-blue-100"
-                            : w.status === "Hold"
-                            ? "bg-rose-50 text-rose-700 border border-rose-100"
-                            : "bg-red-50 text-red-700 border border-red-100"
-                        }`}>
-                          <span className={`w-1 h-1 rounded-full ${
-                            w.status === "Completed"
-                              ? "bg-emerald-500"
-                              : w.status === "Pending"
-                              ? "bg-amber-500 animate-pulse"
-                              : w.status === "Processing"
-                              ? "bg-blue-500"
-                              : w.status === "Hold"
-                              ? "bg-rose-500"
-                              : "bg-red-500"
-                          }`} />
-                          {w.status}
-                        </span>
-                        {w.notes && (
-                          <p className="text-[9px] text-slate-400 mt-1 max-w-[200px] truncate" title={w.notes}>
-                            Note: {w.notes}
-                          </p>
+                      {/* Requested Date */}
+                      <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                        <div>
+                          <span>{req.createdAt ? moment(req.createdAt).format("DD MMM YYYY, hh:mm A") : "—"}</span>
+                          <span className="text-[10px] text-slate-400 block">
+                            {req.createdAt ? moment(req.createdAt).fromNow() : ""}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Payout Method (Masked) */}
+                      <td className="py-3 px-4">
+                        {upiId ? (
+                          <span className="font-mono text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md inline-block">
+                            {upiId}
+                          </span>
+                        ) : bankAcc ? (
+                          <div>
+                            <span className="font-mono text-[11px] font-bold text-slate-800 block">
+                              {maskedBank}
+                            </span>
+                            {payout?.bankAccount?.ifsc && (
+                              <span className="text-[10px] font-mono text-slate-400 uppercase block">
+                                IFSC: {payout.bankAccount.ifsc}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic">No payout details</span>
                         )}
                       </td>
 
+                      {/* Status */}
+                      <td className="py-3 px-4">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${statusPill.class}`}
+                        >
+                          <StatusIconComp className="w-3 h-3" />
+                          {statusPill.label}
+                        </span>
+                      </td>
+
                       {/* Actions */}
-                      <td className="px-4 py-3.5">
+                      <td className="py-3 px-4 text-center">
                         <div className="flex items-center justify-center gap-1.5">
-                          {w.status === "Pending" || w.status === "Hold" || w.status === "Processing" ? (
-                            <>
-                              <button
-                                onClick={() => openActionPrompt(w, "Approved")}
-                                className="p-1 bg-emerald-50 border border-emerald-200 text-emerald-600 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer"
-                                title="Approve Request"
-                              >
-                                <Check size={14} strokeWidth={2.5} />
-                              </button>
-                              <button
-                                onClick={() => openActionPrompt(w, "Rejected")}
-                                className="p-1 bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 rounded-lg transition-colors cursor-pointer"
-                                title="Reject Request"
-                              >
-                                <X size={14} strokeWidth={2.5} />
-                              </button>
-                              <button
-                                onClick={() => openActionPrompt(w, "Hold")}
-                                className="p-1 bg-rose-50 border border-rose-200/60 text-rose-600 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer"
-                                title="Place On Hold"
-                              >
-                                <Pause size={14} strokeWidth={2.5} />
-                              </button>
-                            </>
-                          ) : w.status === "Approved" ? (
+                          {/* View Details */}
+                          <button
+                            onClick={() => setDetailDrawerRequest(req)}
+                            className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg border border-slate-200 transition-colors cursor-pointer"
+                            title="View Full Details Drawer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Accept (if pending) */}
+                          {req.status === "pending" && (
                             <button
-                              onClick={() => openActionPrompt(w, "Completed")}
-                              className="px-2 py-1 bg-blue-50 border border-blue-200 text-blue-600 hover:bg-blue-100 rounded-lg text-[9px] font-bold flex items-center gap-0.5 cursor-pointer"
+                              onClick={() => openActionModal(req, "accept")}
+                              className="p-1.5 text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer"
+                              title="Approve / Accept Request"
                             >
-                              Clear Payout <ChevronRight size={10} />
+                              <Check className="w-3.5 h-3.5 stroke-[2.5]" />
                             </button>
-                          ) : (
-                            <span className="text-slate-300 text-[10px] font-bold">—</span>
+                          )}
+
+                          {/* Reject (if pending) */}
+                          {req.status === "pending" && (
+                            <button
+                              onClick={() => openActionModal(req, "reject")}
+                              className="p-1.5 text-rose-700 hover:text-rose-900 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors cursor-pointer"
+                              title="Reject Request"
+                            >
+                              <X className="w-3.5 h-3.5 stroke-[2.5]" />
+                            </button>
+                          )}
+
+                          {/* View User History */}
+                          {requesterId && (
+                            <button
+                              onClick={() => openUserHistory(requesterId, requester)}
+                              className="p-1.5 text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors cursor-pointer"
+                              title="View User Redemption History"
+                            >
+                              <History className="w-3.5 h-3.5" />
+                            </button>
                           )}
                         </div>
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={7} className="text-center p-12 text-slate-400 text-xs font-semibold">
-                      No withdrawal requests in this category.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
-      </div>
 
-      {/* ── Action Dialog Prompt ── */}
-      {isPromptOpen && currentRequest && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="w-full max-w-md mx-auto bg-white rounded-2xl shadow-2xl border border-slate-100 p-6 relative animate-in zoom-in-95 duration-200">
-            <h3 className="text-sm font-bold text-slate-800 mb-2">
-              Confirm Withdrawal Action: {promptAction}
-            </h3>
-            <p className="text-xs text-slate-400 mb-4">
-              You are updating Payout Request #{currentRequest.id} for user **{currentRequest.userName}** (Amount: ₹{currentRequest.amount.toLocaleString()}).
-            </p>
-
-            <div className="space-y-3.5">
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                  Admin Resolution Notes / Reason
-                </label>
-                <textarea
-                  value={adminNotes}
-                  onChange={(e) => setAdminNotes(e.target.value)}
-                  placeholder="e.g. Bank settlement transaction reference, verification hold details..."
-                  rows={3}
-                  className="w-full p-3 border border-slate-200 bg-slate-50/50 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300"
-                />
-              </div>
-
-              <div className="flex gap-3">
-                <Button
-                  type="button"
-                  onClick={() => setIsPromptOpen(false)}
-                  className="w-1/2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold rounded-xl text-xs"
-                  color="gray"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  onClick={handleExecuteAction}
-                  className="w-1/2 font-semibold rounded-xl text-xs"
-                  color={promptAction === "Approved" || promptAction === "Completed" ? "success" : "danger"}
-                >
-                  Confirm Action
-                </Button>
-              </div>
+        {/* Pagination Bar */}
+        {pagination.totalPages > 1 && (
+          <div className="flex items-center justify-between pt-4 border-t border-slate-100 text-xs">
+            <span className="text-slate-500 font-medium">
+              Showing page {pagination.page} of {pagination.totalPages} ({pagination.totalCount} total requests)
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handlePageChange(pagination.page - 1)}
+                disabled={pagination.page <= 1 || loading}
+                className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-40 cursor-pointer"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>Previous</span>
+              </button>
+              <button
+                onClick={() => handlePageChange(pagination.page + 1)}
+                disabled={pagination.page >= pagination.totalPages || loading}
+                className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-40 cursor-pointer"
+              >
+                <span>Next</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* ── ACTION CONFIRMATION MODAL ── */}
+      <WalletRedeemActionModal
+        isOpen={actionModalState.isOpen}
+        request={actionModalState.request}
+        actionType={actionModalState.actionType}
+        onClose={() =>
+          setActionModalState({ isOpen: false, request: null, actionType: null, isProcessing: false })
+        }
+        onConfirm={handleExecuteAction}
+        isProcessing={actionModalState.isProcessing}
+      />
+
+      {/* ── REDEMPTION DETAILS DRAWER ── */}
+      <WalletRedeemDetailDrawer
+        isOpen={Boolean(detailDrawerRequest)}
+        request={detailDrawerRequest}
+        onClose={() => setDetailDrawerRequest(null)}
+        onAccept={(req) => openActionModal(req, "accept")}
+        onReject={(req) => openActionModal(req, "reject")}
+        onViewUserHistory={openUserHistory}
+      />
+
+      {/* ── USER REDEMPTION HISTORY DRAWER ── */}
+      <WalletUserHistoryDrawer
+        key={historyDrawerState.refreshKey}
+        isOpen={historyDrawerState.isOpen}
+        targetUserId={historyDrawerState.targetUserId}
+        requesterData={historyDrawerState.requesterData}
+        onClose={() => setHistoryDrawerState((prev) => ({ ...prev, isOpen: false, targetUserId: null }))}
+      />
     </div>
   );
 };

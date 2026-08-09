@@ -9,7 +9,6 @@ import {
   Plus,
   Notebook,
   History,
-  Wallet,
   ShoppingBag,
   Megaphone,
   Store,
@@ -19,6 +18,8 @@ import {
 import { IUser } from "../../types";
 import moment from "moment";
 import { motion, AnimatePresence } from "framer-motion";
+import { UserWalletCard } from "./UserWalletCard";
+import { UserWalletActivity } from "./UserWalletActivity";
 
 type UserDetailsProps = {
   user: IUser;
@@ -92,7 +93,18 @@ export const UserDetails: React.FC<UserDetailsProps> = ({
       setNotes(parsed.notes || []);
       setAuditLogs(parsed.auditLogs || []);
       if (parsed.userOverride) {
-        setCurrentUser(parsed.userOverride);
+        const override = { ...parsed.userOverride };
+        if (override.seller?.pan?.startsWith("ABCDE")) {
+          delete override.seller.pan;
+        }
+        if (override.seller?.panNumber?.startsWith("ABCDE")) {
+          delete override.seller.panNumber;
+        }
+        setCurrentUser({
+          ...user,
+          ...override,
+          seller: user.seller ? { ...user.seller, ...override.seller } : override.seller,
+        });
       }
     } else {
       // Seed initial mock logs
@@ -429,11 +441,21 @@ export const UserDetails: React.FC<UserDetailsProps> = ({
                 </div>
                 <div>
                   <span className="text-slate-400">Permanent Account Number (PAN)</span>
-                  <p className="font-semibold text-slate-700 font-mono mt-0.5">{currentUser.seller?.pan || "—"}</p>
+                  <p className="font-semibold text-slate-700 font-mono mt-0.5">
+                    {currentUser.seller?.panNumber && !currentUser.seller.panNumber.startsWith("ABCDE")
+                      ? currentUser.seller.panNumber
+                      : currentUser.seller?.pan && !currentUser.seller.pan.startsWith("ABCDE")
+                      ? currentUser.seller.pan
+                      : "—"}
+                  </p>
                 </div>
                 <div>
                   <span className="text-slate-400">Business Structure / Category</span>
-                  <p className="font-semibold text-slate-700 mt-0.5">{currentUser.seller?.businessType || "Retail"} • {currentUser.seller?.businessCategory || "General Stores"}</p>
+                  <p className="font-semibold text-slate-700 mt-0.5">
+                    {Array.isArray(currentUser.seller?.typeOfBusiness) 
+                      ? currentUser.seller.typeOfBusiness.join(", ") 
+                      : currentUser.seller?.typeOfBusiness || currentUser.seller?.businessType || "—"} • {currentUser.seller?.industry || currentUser.seller?.businessCategory || "—"}
+                  </p>
                 </div>
                 <div className="sm:col-span-2">
                   <span className="text-slate-400">Official Business Address</span>
@@ -465,7 +487,13 @@ export const UserDetails: React.FC<UserDetailsProps> = ({
                     <CheckCircle size={14} className="text-emerald-500" />
                     <span className="font-medium text-slate-700">PAN Card Verification</span>
                   </div>
-                  <span className="font-mono text-slate-400 font-semibold">{currentUser.seller?.pan ? `XXXXXX${currentUser.seller.pan.slice(-4)}` : "Verified"}</span>
+                  <span className="font-mono text-slate-400 font-semibold">
+                    {currentUser.seller?.panNumber && !currentUser.seller.panNumber.startsWith("ABCDE")
+                      ? currentUser.seller.panNumber
+                      : currentUser.seller?.pan && !currentUser.seller.pan.startsWith("ABCDE")
+                      ? currentUser.seller.pan
+                      : "Verified"}
+                  </span>
                 </div>
 
                 {currentUser.seller?.gstNumber && (
@@ -538,44 +566,10 @@ export const UserDetails: React.FC<UserDetailsProps> = ({
         <div className="space-y-6">
           
           {/* Wallet Section */}
-          <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 rounded-2xl p-6 text-white shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <h3 className="font-bold text-xs uppercase tracking-wider text-white/70 flex items-center gap-2">
-                <Wallet size={15} />
-                CRM Active Wallet
-              </h3>
-              <span className="text-[10px] font-semibold bg-white/10 text-white border border-white/10 px-2 py-0.5 rounded-full uppercase">
-                V1 Secure
-              </span>
-            </div>
-            
-            <div className="space-y-1">
-              <span className="text-[10px] text-white/50 uppercase font-medium">Available Balance</span>
-              <h1 className="text-3xl font-extrabold tracking-tight">₹{(currentUser.wallet?.balance || 0).toLocaleString()}</h1>
-            </div>
+          <UserWalletCard userId={currentUser._id || (currentUser as any).id || user._id || (user as any).id} />
 
-            <div className="grid grid-cols-2 gap-4 pt-2 text-xs border-t border-white/5">
-              <div>
-                <span className="text-white/40">Locked Balance</span>
-                <p className="font-bold mt-0.5">₹{(currentUser.wallet?.locked || 0).toLocaleString()}</p>
-              </div>
-              <div>
-                <span className="text-white/40">Lifetime Earnings</span>
-                <p className="font-bold mt-0.5">₹{(currentUser.wallet?.earnings || 0).toLocaleString()}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 text-xs pt-1">
-              <div>
-                <span className="text-white/40">Withdrawals</span>
-                <p className="font-bold mt-0.5">₹{(currentUser.wallet?.withdrawals || 0).toLocaleString()}</p>
-              </div>
-              <div>
-                <span className="text-white/40">Pending Payouts</span>
-                <p className="font-bold text-amber-400 mt-0.5">₹{(currentUser.wallet?.pendingWithdrawals || 0).toLocaleString()}</p>
-              </div>
-            </div>
-          </div>
+          {/* Wallet History Ledger Section */}
+          <UserWalletActivity userId={currentUser._id || (currentUser as any).id || user._id || (user as any).id} />
 
           {/* Orders & Purchases Card */}
           <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-4">

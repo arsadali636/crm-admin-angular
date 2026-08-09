@@ -1,51 +1,105 @@
 import React, { useState } from "react";
-import { FiChevronLeft, FiChevronRight, FiZoomIn, FiZoomOut, FiMaximize, FiX } from "react-icons/fi";
+import { FiChevronLeft, FiChevronRight, FiZoomIn, FiZoomOut, FiMaximize, FiDownload, FiX, FiImage } from "react-icons/fi";
 
 interface ProductGalleryProps {
   media: string[];
+  masterMedia?: string[];
+  expiryProof?: string;
 }
 
-export const ProductGallery: React.FC<ProductGalleryProps> = ({ media }) => {
-  const mediaList = media && media.length > 0 ? media : ["/placeholder-product.png"];
-  
+export const ProductGallery: React.FC<ProductGalleryProps> = ({ media, masterMedia = [], expiryProof }) => {
+  // Combine all available images into a categorized media list
+  const galleryItems: { url: string; category: "Primary" | "Gallery" | "Master" | "Expiry Proof" }[] = [];
+
+  const visited = new Set();
+
+  if (media && media.length > 0) {
+    media.forEach((url, idx) => {
+      if (url && typeof url === "string" && !visited.has(url)) {
+        visited.add(url);
+        galleryItems.push({
+          url,
+          category: idx === 0 ? "Primary" : "Gallery",
+        });
+      }
+    });
+  }
+
+  if (masterMedia && masterMedia.length > 0) {
+    masterMedia.forEach((url) => {
+      if (url && typeof url === "string" && !visited.has(url)) {
+        visited.add(url);
+        galleryItems.push({
+          url,
+          category: "Master",
+        });
+      }
+    });
+  }
+
+  if (expiryProof && typeof expiryProof === "string" && !visited.has(expiryProof)) {
+    visited.add(expiryProof);
+    galleryItems.push({
+      url: expiryProof,
+      category: "Expiry Proof",
+    });
+  }
+
+  // Fallback placeholder
+  if (galleryItems.length === 0) {
+    galleryItems.push({
+      url: "/placeholder-product.png",
+      category: "Primary",
+    });
+  }
+
   const [activeIndex, setActiveIndex] = useState(0);
   const [zoomActive, setZoomActive] = useState(false);
   const [lightboxActive, setLightboxActive] = useState(false);
 
   const handlePrev = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setActiveIndex((prev) => (prev === 0 ? mediaList.length - 1 : prev - 1));
+    setActiveIndex((prev) => (prev === 0 ? galleryItems.length - 1 : prev - 1));
   };
 
   const handleNext = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setActiveIndex((prev) => (prev === mediaList.length - 1 ? 0 : prev + 1));
+    setActiveIndex((prev) => (prev === galleryItems.length - 1 ? 0 : prev + 1));
   };
 
-  const currentImage = mediaList[activeIndex];
+  const currentItem = galleryItems[activeIndex] || galleryItems[0];
+
+  const categoryBadgeColors = {
+    Primary: "bg-indigo-600 text-white",
+    Gallery: "bg-blue-600 text-white",
+    Master: "bg-purple-600 text-white",
+    "Expiry Proof": "bg-amber-600 text-white",
+  };
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-      <div className="flex items-center justify-between mb-1">
-        <h3 className="text-sm font-bold text-slate-800">Product Image Gallery</h3>
-        <span className="text-xs text-slate-500 font-semibold bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-lg">
-          Image {activeIndex + 1} of {mediaList.length}
+      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-indigo-500" />
+          <h3 className="text-sm font-bold text-slate-800">Enterprise Media & Product Asset Gallery</h3>
+        </div>
+        <span className="text-xs text-indigo-700 font-extrabold bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+          <FiImage size={13} />
+          {activeIndex + 1} of {galleryItems.length} Assets
         </span>
       </div>
 
       {/* Main Image Container */}
-      <div className="relative group aspect-square overflow-hidden rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center">
-        {/* Primary Image Badge */}
-        {activeIndex === 0 && (
-          <span className="absolute top-3 left-3 z-10 bg-indigo-600 text-white font-extrabold text-[9px] uppercase tracking-widest px-2.5 py-1 rounded-md shadow-xs">
-            Primary Image
-          </span>
-        )}
+      <div className="relative group aspect-video sm:aspect-square overflow-hidden rounded-xl bg-slate-50 border border-slate-150 flex items-center justify-center">
+        {/* Asset Category Badge */}
+        <span className={`absolute top-3 left-3 z-10 font-extrabold text-[9px] uppercase tracking-widest px-2.5 py-1 rounded-md shadow-xs ${categoryBadgeColors[currentItem.category]}`}>
+          {currentItem.category} Asset
+        </span>
 
-        {/* Gallery Image */}
+        {/* Display Image */}
         <img
-          src={currentImage}
-          alt={`Product View ${activeIndex + 1}`}
+          src={currentItem.url}
+          alt={`Product Media ${activeIndex + 1}`}
           loading="lazy"
           className={`h-full w-full object-contain select-none transition-transform duration-300 ${
             zoomActive ? "scale-175 cursor-zoom-out" : "scale-100 cursor-zoom-in"
@@ -53,15 +107,27 @@ export const ProductGallery: React.FC<ProductGalleryProps> = ({ media }) => {
           onClick={() => setZoomActive(!zoomActive)}
         />
 
-        {/* Floating Icons */}
-        <div className="absolute right-3 top-3 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        {/* Floating Controls Overlay */}
+        <div className="absolute right-3 top-3 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10">
           <button
             onClick={() => setLightboxActive(true)}
-            title="Fullscreen Preview"
+            title="Fullscreen Lightbox"
             className="p-2 bg-white/90 hover:bg-white text-slate-700 hover:text-slate-900 border border-slate-200 rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center"
           >
             <FiMaximize size={15} />
           </button>
+
+          <a
+            href={currentItem.url}
+            target="_blank"
+            rel="noreferrer"
+            download
+            title="Download Original Asset"
+            className="p-2 bg-white/90 hover:bg-white text-slate-700 hover:text-slate-900 border border-slate-200 rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center"
+          >
+            <FiDownload size={15} />
+          </a>
+
           <button
             onClick={() => setZoomActive(!zoomActive)}
             title={zoomActive ? "Zoom Out" : "Zoom In"}
@@ -71,18 +137,18 @@ export const ProductGallery: React.FC<ProductGalleryProps> = ({ media }) => {
           </button>
         </div>
 
-        {/* Left/Right controls (only show if multiple images) */}
-        {mediaList.length > 1 && (
+        {/* Prev / Next controls */}
+        {galleryItems.length > 1 && (
           <>
             <button
               onClick={handlePrev}
-              className="absolute left-3 top-1/2 -translate-y-1/2 p-2 bg-white/80 hover:bg-white text-slate-700 hover:text-slate-900 border border-slate-200 rounded-xl shadow-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer"
+              className="absolute left-3 top-1/2 -translate-y-1/2 p-2.5 bg-white/90 hover:bg-white text-slate-700 hover:text-slate-900 border border-slate-200 rounded-xl shadow-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer z-10"
             >
               <FiChevronLeft size={18} />
             </button>
             <button
               onClick={handleNext}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-white/80 hover:bg-white text-slate-700 hover:text-slate-900 border border-slate-200 rounded-xl shadow-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer"
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 bg-white/90 hover:bg-white text-slate-700 hover:text-slate-900 border border-slate-200 rounded-xl shadow-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer z-10"
             >
               <FiChevronRight size={18} />
             </button>
@@ -90,69 +156,60 @@ export const ProductGallery: React.FC<ProductGalleryProps> = ({ media }) => {
         )}
       </div>
 
-      {/* Thumbnail Slider */}
-      {mediaList.length > 1 && (
+      {/* Thumbnail Strip */}
+      {galleryItems.length > 1 && (
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
-          {mediaList.map((imgUrl, idx) => (
+          {galleryItems.map((item, idx) => (
             <button
               key={idx}
               onClick={() => {
                 setActiveIndex(idx);
                 setZoomActive(false);
               }}
-              className={`relative flex-shrink-0 h-16 w-16 overflow-hidden rounded-lg border-2 bg-slate-50 transition cursor-pointer ${
-                activeIndex === idx ? "border-indigo-600 scale-95" : "border-slate-100 opacity-60 hover:opacity-100"
+              className={`relative h-16 w-16 flex-shrink-0 rounded-xl border-2 overflow-hidden transition cursor-pointer bg-slate-50 ${
+                idx === activeIndex
+                  ? "border-indigo-600 ring-2 ring-indigo-500/20 shadow-xs"
+                  : "border-slate-200 opacity-60 hover:opacity-100"
               }`}
             >
-              {idx === 0 && (
-                <span className="absolute top-0.5 left-0.5 bg-indigo-600 text-white text-[6px] font-bold px-1 rounded-sm">
-                  PRI
-                </span>
-              )}
-              <img src={imgUrl} className="h-full w-full object-contain" alt={`Thumbnail ${idx + 1}`} />
+              <img src={item.url} alt={`Thumbnail ${idx + 1}`} className="h-full w-full object-cover" />
+              <span className={`absolute bottom-0 inset-x-0 text-[8px] font-extrabold uppercase py-0.2 text-center truncate ${categoryBadgeColors[item.category]}`}>
+                {item.category.split(" ")[0]}
+              </span>
             </button>
           ))}
         </div>
       )}
 
-      {/* Lightbox / Fullscreen Modal */}
+      {/* Lightbox Modal */}
       {lightboxActive && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/90 backdrop-blur-md animate-in fade-in duration-200">
-          {/* Close trigger */}
-          <button
-            onClick={() => setLightboxActive(false)}
-            className="absolute top-5 right-5 p-3 text-white/70 hover:text-white bg-white/10 hover:bg-white/20 border border-white/10 rounded-full transition cursor-pointer"
-          >
-            <FiX size={20} />
-          </button>
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/85 backdrop-blur-md flex items-center justify-center p-4"
+          onClick={() => setLightboxActive(false)}
+        >
+          <div className="relative max-w-4xl w-full bg-white rounded-2xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <span className={`text-[10px] font-extrabold uppercase px-2.5 py-1 rounded ${categoryBadgeColors[currentItem.category]}`}>
+                {currentItem.category} Media Fullscreen
+              </span>
+              <div className="flex items-center gap-2">
+                <a
+                  href={currentItem.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  download
+                  className="px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition flex items-center gap-1"
+                >
+                  <FiDownload size={13} /> Download
+                </a>
+                <button onClick={() => setLightboxActive(false)} className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg">
+                  <FiX size={20} />
+                </button>
+              </div>
+            </div>
 
-          {/* Lightbox Controls */}
-          {mediaList.length > 1 && (
-            <>
-              <button
-                onClick={handlePrev}
-                className="absolute left-6 top-1/2 -translate-y-1/2 p-4 text-white hover:text-white bg-white/5 hover:bg-white/15 border border-white/10 rounded-full transition cursor-pointer"
-              >
-                <FiChevronLeft size={30} />
-              </button>
-              <button
-                onClick={handleNext}
-                className="absolute right-6 top-1/2 -translate-y-1/2 p-4 text-white hover:text-white bg-white/5 hover:bg-white/15 border border-white/10 rounded-full transition cursor-pointer"
-              >
-                <FiChevronRight size={30} />
-              </button>
-            </>
-          )}
-
-          {/* Image */}
-          <div className="max-w-[85vw] max-h-[85vh] flex flex-col items-center gap-4">
-            <img
-              src={currentImage}
-              alt="Fullscreen Product View"
-              className="max-w-full max-h-[75vh] object-contain select-none animate-in zoom-in-95 duration-200"
-            />
-            <div className="text-white/80 font-semibold text-xs tracking-wider">
-              IMAGE {activeIndex + 1} OF {mediaList.length} {activeIndex === 0 && " | PRIMARY IMAGE"}
+            <div className="max-h-[80vh] overflow-auto flex items-center justify-center bg-slate-50 rounded-xl p-3">
+              <img src={currentItem.url} alt="Lightbox Full View" className="max-h-[75vh] object-contain rounded-lg" />
             </div>
           </div>
         </div>

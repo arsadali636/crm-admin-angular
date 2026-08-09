@@ -1,0 +1,137 @@
+import React from "react";
+import { useNavigate } from "react-router-dom";
+import { Store, ArrowRight } from "lucide-react";
+import { TopAffiliateType } from "../../types";
+import { formatIndianCurrency, formatNumberInIN } from "../../utils/utils";
+import { TableSkeleton } from "./DashboardSkeleton";
+import { SectionErrorState, SectionEmptyState } from "./SectionStateUI";
+
+interface TopSellersTableProps {
+  sellers: TopAffiliateType[];
+  loading: boolean;
+  error?: boolean;
+  onRetry?: () => void;
+}
+
+export const TopSellersTable: React.FC<TopSellersTableProps> = ({
+  sellers,
+  loading,
+  error,
+  onRetry,
+}) => {
+  const navigate = useNavigate();
+
+  if (loading) {
+    return <TableSkeleton />;
+  }
+
+  if (error) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5">
+        <div className="flex justify-between items-center pb-3 border-b border-slate-100 mb-2">
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+            <Store className="w-4 h-4 text-indigo-600" />
+            Top Sellers
+          </h3>
+        </div>
+        <SectionErrorState message="Unable to load top sellers." onRetry={onRetry} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white border border-slate-200/80 shadow-sm rounded-2xl overflow-hidden flex flex-col justify-between h-full">
+      <div>
+        {/* Header */}
+        <div className="flex justify-between items-center px-5 py-4 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
+              <Store className="w-4 h-4 text-indigo-600" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900">Top Sellers</h3>
+          </div>
+          <button
+            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+            onClick={() => navigate("/users?role=seller")}
+          >
+            <span>View All</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Content */}
+        {!sellers || sellers.length === 0 ? (
+          <div className="p-4">
+            <SectionEmptyState
+              title="No Top Sellers"
+              message="No seller activity recorded for the selected period."
+            />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50/80 text-slate-500 font-semibold uppercase text-[10px] tracking-wider border-b border-slate-100">
+                  <th className="py-3 px-4 text-center w-12">Rank</th>
+                  <th className="py-3 px-4">Business Name</th>
+                  <th className="py-3 px-4 text-right">Total Sale</th>
+                  <th className="py-3 px-4 text-right">Volume</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {sellers.map((seller, index) => {
+                  const rank = index + 1;
+                  const isTop3 = rank <= 3;
+                  const rankBadgeClass =
+                    rank === 1
+                      ? "bg-amber-100 text-amber-800 border-amber-300 font-bold"
+                      : rank === 2
+                      ? "bg-slate-200 text-slate-800 border-slate-300 font-bold"
+                      : rank === 3
+                      ? "bg-orange-100 text-orange-800 border-orange-300 font-bold"
+                      : "bg-slate-100 text-slate-600 border-slate-200 font-medium";
+
+                  const businessName =
+                    seller.businessName?.trim() ||
+                    seller.fName?.trim() ||
+                    "N/A";
+
+                  return (
+                    <tr
+                      key={seller._id || index}
+                      className="hover:bg-slate-50/80 transition-colors"
+                    >
+                      <td className="py-2.5 px-4 text-center">
+                        <span
+                          className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] border ${rankBadgeClass}`}
+                        >
+                          #{rank}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <span
+                          className={`font-semibold ${
+                            isTop3 ? "text-slate-900" : "text-slate-700"
+                          } truncate max-w-[180px] block`}
+                          title={businessName}
+                        >
+                          {businessName}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 text-right font-bold text-slate-900">
+                        {formatIndianCurrency(seller.totalSale)}
+                      </td>
+                      <td className="py-2.5 px-4 text-right text-slate-600 font-medium">
+                        {formatNumberInIN(seller.volume)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

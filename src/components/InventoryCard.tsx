@@ -1,82 +1,76 @@
 import React from "react";
-import { FiGrid, FiCheckCircle, FiAlertCircle, FiXCircle } from "react-icons/fi";
+import { FiBox, FiCheckCircle, FiAlertCircle } from "react-icons/fi";
 
 interface InventoryCardProps {
   product: any;
 }
 
 export const InventoryCard: React.FC<InventoryCardProps> = ({ product }) => {
-  const getStockStatus = (stock: number) => {
-    if (stock === 0) return { label: "Out of Stock", color: "bg-rose-50 text-rose-700 border-rose-100", icon: <FiXCircle /> };
-    if (stock < 5) return { label: "Low Stock Warning", color: "bg-amber-50 text-amber-700 border-amber-100", icon: <FiAlertCircle /> };
-    return { label: "Active / In Stock", color: "bg-emerald-50 text-emerald-700 border-emerald-100", icon: <FiCheckCircle /> };
-  };
+  const stockVal = Number(
+    product.availableInventory !== undefined
+      ? product.availableInventory
+      : product.stock !== undefined
+      ? product.stock
+      : product.availableLots !== undefined
+      ? product.availableLots
+      : 0
+  );
 
-  const getVal = (val: any) => {
-    if (val === undefined || val === null || val === "") return "Not Available";
-    return val;
-  };
-
-  const totalStockVal = product.stock !== undefined ? product.stock : product.currentStock;
-  const availableStockVal = product.availableStock !== undefined ? product.availableStock : product.availableInventory;
-  const reservedStockVal = product.reservedStock;
-  const soldStockVal = product.soldStock !== undefined ? product.soldStock : product.totalSale;
-
-  const stockNumber = Number(totalStockVal) || 0;
-  const status = product.stockStatus ? { label: product.stockStatus, color: "bg-slate-100 text-slate-700 border-slate-200", icon: <FiGrid /> } : getStockStatus(stockNumber);
-
-  const warehouseVal = product.warehouse || product.warehouseName || product.warehouseLocation;
+  const isInStock = stockVal > 0;
+  const stockPercent = Math.min(100, Math.max(5, (stockVal / 100) * 100));
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-      <h2 className="text-md font-bold text-slate-800 mb-5 pb-3 border-b border-slate-100 flex items-center gap-2">
-        <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-        Inventory & Stock Levels
-      </h2>
-
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-5 mb-5">
-        <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Current/Total Stock</span>
-          <span className="text-sm font-extrabold text-slate-800 block">
-            {totalStockVal !== undefined ? `${totalStockVal} lots` : "Not Available"}
-          </span>
-        </div>
-
-        <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Available Stock</span>
-          <span className="text-sm font-extrabold text-slate-800 block">
-            {availableStockVal !== undefined ? `${availableStockVal} lots` : "Not Available"}
-          </span>
-        </div>
-
-        <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Reserved Stock</span>
-          <span className="text-sm font-extrabold text-slate-800 block">
-            {reservedStockVal !== undefined ? `${reservedStockVal} lots` : "Not Available"}
-          </span>
-        </div>
-
-        <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Sold Stock</span>
-          <span className="text-sm font-extrabold text-slate-800 block">
-            {soldStockVal !== undefined ? `${soldStockVal} lots` : "Not Available"}
-          </span>
-        </div>
-
-        <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 col-span-2 md:col-span-1">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Warehouse</span>
-          <span className="text-sm font-semibold text-slate-700 block truncate" title={String(getVal(warehouseVal))}>
-            {getVal(warehouseVal)}
-          </span>
-        </div>
+    <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
+      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
+          Inventory & Stock Management
+        </h2>
+        <span
+          className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider border ${
+            isInStock
+              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+              : "bg-rose-50 text-rose-700 border-rose-200"
+          }`}
+        >
+          {isInStock ? <FiCheckCircle size={14} /> : <FiAlertCircle size={14} />}
+          {isInStock ? "In Stock" : "Out of Stock"}
+        </span>
       </div>
 
-      <div className="border-t border-slate-100 pt-4 flex items-center justify-between">
-        <span className="text-xs font-semibold text-slate-500">Live Inventory Status</span>
-        <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg border ${status.color}`}>
-          {status.icon}
-          {status.label}
-        </span>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+        {/* Quantity */}
+        <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-150 flex items-center gap-3">
+          <div className={`p-2.5 rounded-xl ${isInStock ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>
+            <FiBox size={20} />
+          </div>
+          <div>
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">Available Inventory</span>
+            <span className="text-lg font-black text-slate-900 block">{stockVal} Units</span>
+          </div>
+        </div>
+
+        {/* Stock Status Bar Indicator */}
+        <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-150 sm:col-span-2 space-y-2 flex flex-col justify-center">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+            <span>Inventory Health Status</span>
+            <span className={isInStock ? "text-emerald-700" : "text-rose-600"}>
+              {isInStock ? (stockVal > 10 ? "Optimal Stock Level" : "Low Stock Alert") : "Replenishment Required"}
+            </span>
+          </div>
+          <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                !isInStock
+                  ? "bg-rose-500"
+                  : stockVal < 10
+                  ? "bg-amber-500"
+                  : "bg-emerald-500"
+              }`}
+              style={{ width: `${stockPercent}%` }}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
