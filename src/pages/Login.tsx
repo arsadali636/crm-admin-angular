@@ -25,58 +25,79 @@ const LoginPage = () => {
     e.preventDefault();
     setError("");
 
+    let formattedInput = input;
+    if (/^\d{10}$/.test(input)) {
+      formattedInput = `+91-${input}`;
+    }
+
     if (!isOtpSent) {
-      if (validateInput(input)) {
-        setIsLoading(true);
-        setTimeout(() => {
-          setIsOtpSent(true);
-          setIsLoading(false);
-        }, 800);
-      } else {
+      if (!validateInput(input)) {
         setError("Please enter a valid email or 10-digit mobile number");
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        const response = await fetch(getCompleteUrlV1("auth/send-otp"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: formattedInput,
+            type: "login_user_verification",
+          }),
+        });
+        const data = await response.json();
+
+        if (response.ok && data.type === "success") {
+          setIsOtpSent(true);
+        } else {
+          setError(data.message || "Failed to send OTP. Please try again.");
+        }
+      } catch (err) {
+        console.error("send-otp request failed:", err);
+        setError("Something went wrong. Please try again later.");
+      } finally {
+        setIsLoading(false);
       }
     } else {
-      if (otp.length === 6) {
-        setIsLoading(true);
-        let formattedInput = input;
-        if (/^\d{10}$/.test(input)) {
-          formattedInput = `+91-${input}`;
-        }
-
-        try {
-          const response = await fetch(getCompleteUrlV1("auth/login"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email: formattedInput, otp: Number(otp) }),
-          });
-          const data = await response.json();
-
-          if (data.token) {
-            localStorage.setItem(
-              "user",
-              JSON.stringify({
-                token: data.token,
-                user: data.user,
-              })
-            );
-            if (rememberMe) {
-              localStorage.setItem("remembered_login_input", input);
-              localStorage.setItem("remember_me", "true");
-            } else {
-              localStorage.removeItem("remembered_login_input");
-              localStorage.removeItem("remember_me");
-            }
-            navigate("/dashboard");
-          } else {
-            setError(data.message || "Login Failed. Please check your OTP.");
-          }
-        } catch (err) {
-          setError("Something went wrong. Please try again later.");
-        } finally {
-          setIsLoading(false);
-        }
-      } else {
+      if (otp.length !== 6) {
         setError("Please enter a valid 6-digit OTP");
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        const response = await fetch(getCompleteUrlV1("auth/login"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: formattedInput, otp: Number(otp) }),
+        });
+        const data = await response.json();
+
+        if (response.ok && data.token) {
+          localStorage.setItem(
+            "user",
+            JSON.stringify({
+              token: data.token,
+              user: data.user,
+            })
+          );
+          if (rememberMe) {
+            localStorage.setItem("remembered_login_input", input);
+            localStorage.setItem("remember_me", "true");
+          } else {
+            localStorage.removeItem("remembered_login_input");
+            localStorage.removeItem("remember_me");
+          }
+          navigate("/dashboard");
+        } else {
+          setError(data.message || "Login Failed. Please check your OTP.");
+        }
+      } catch (err) {
+        console.error("login request failed:", err);
+        setError("Something went wrong. Please try again later.");
+      } finally {
+        setIsLoading(false);
       }
     }
   };
