@@ -21,6 +21,7 @@ import {
   Layers
 } from "lucide-react";
 import Breadcrumb from "../components/Breadcrumb";
+import BackButton from "../components/BackButton";
 import { STATIC_NOTIFICATIONS, StaticNotification } from "../constants/staticNotifications";
 
 export default function NotificationCenter() {
@@ -116,7 +117,10 @@ export default function NotificationCenter() {
               { label: "Notifications", to: "/notifications" },
             ]}
           />
-          <h2 className="text-xl font-bold text-slate-800 mt-2">Notifications</h2>
+          <div className="flex items-center gap-3 mt-2">
+            <BackButton fallback="/dashboard" label="Dashboard" variant="icon" />
+            <h2 className="text-xl font-bold text-slate-800">Notifications</h2>
+          </div>
           <p className="text-xs text-slate-400 mt-0.5 font-medium">Track all important platform activities across Lottmart.</p>
         </div>
 

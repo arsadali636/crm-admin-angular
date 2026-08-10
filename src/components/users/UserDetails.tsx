@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
+import BackButton from "../BackButton";
 import {
-  ArrowLeft,
   User,
   Shield,
   CheckCircle,
@@ -289,12 +289,7 @@ export const UserDetails: React.FC<UserDetailsProps> = ({
       {/* ── HEADER ── */}
       <div className="flex flex-wrap items-center justify-between gap-4 bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
         <div className="flex items-center gap-4 min-w-0">
-          <button
-            onClick={onBack}
-            className="p-2 hover:bg-slate-100 rounded-xl text-slate-500 hover:text-slate-700 transition-colors"
-          >
-            <ArrowLeft size={18} />
-          </button>
+          <BackButton onClick={onBack} fallback="/users" label="Users" variant="icon" />
           
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-base font-bold shadow-md shadow-blue-500/10 flex-shrink-0">
             {(currentUser.firstName?.[0] || "").toUpperCase()}

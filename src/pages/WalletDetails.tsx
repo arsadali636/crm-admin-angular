@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import Breadcrumb from "../components/Breadcrumb";
+import BackButton from "../components/BackButton";
 import { walletStore, WalletAccount, WalletTransaction, WithdrawalRequest } from "../utils/walletStore";
 import { WalletManualOperationModal } from "../components/WalletManualOperationModal";
 import moment from "moment";
@@ -171,15 +172,18 @@ export const WalletDetails = () => {
 
   return (
     <div className="p-3 space-y-6">
-      {/* ── Breadcrumb ── */}
+      {/* ── BREADCRUMB & BACK ACTION ── */}
       <div className="bg-white rounded-xl px-5 py-3 shadow-[0_1px_2px_rgba(0,0,0,0.04)] border border-slate-100 flex items-center justify-between">
-        <Breadcrumb
-          items={[
-            { label: "Dashboard", to: "/dashboard" },
-            { label: "Wallet Accounts", to: "/wallet/accounts" },
-            { label: `Wallet ID: ${account.id}`, to: `/wallet/details?id=${account.id}` },
-          ]}
-        />
+        <div className="flex items-center gap-3">
+          <BackButton fallback="/wallet/accounts" label="Wallet Accounts" variant="icon" />
+          <Breadcrumb
+            items={[
+              { label: "Dashboard", to: "/dashboard" },
+              { label: "Wallet Accounts", to: "/wallet/accounts" },
+              { label: `Wallet ID: ${account.id}`, to: `/wallet/details?id=${account.id}` },
+            ]}
+          />
+        </div>
         <div className="flex gap-2">
           <button
             onClick={handleFreezeToggle}

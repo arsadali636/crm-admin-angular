@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import moment from "moment";
 import { RequestType } from "../pages/Approvals";
 import { Modal } from "./ImageModal";
+import BackButton from "./BackButton";
 
 // Reusable Enterprise Component Imports
 import ApprovalSummaryCard from "./ApprovalSummaryCard";
@@ -21,7 +22,7 @@ import CommercialFlagsCard from "./approvals/product/CommercialFlagsCard";
 import ProductDescriptionCard from "./approvals/product/ProductDescriptionCard";
 import JsonDebugViewer from "./approvals/product/JsonDebugViewer";
 
-import { FiArrowLeft, FiCopy, FiTag, FiUser } from "react-icons/fi";
+import { FiCopy, FiTag, FiUser } from "react-icons/fi";
 
 interface ProductDetailViewProps {
   req: any;
@@ -414,13 +415,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       <div className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/95 px-6 py-4 backdrop-blur-md">
         <div className="mx-auto max-w-7xl flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-4">
-            <button
-              onClick={onBack}
-              className="group flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 cursor-pointer shadow-xs"
-              title="Back to Approvals Queue"
-            >
-              <FiArrowLeft className="transition-transform group-hover:-translate-x-0.5" size={18} strokeWidth={2.5} />
-            </button>
+            <BackButton onClick={onBack} fallback="/products" label="Products" variant="icon" />
 
             {/* Thumbnail Image */}
             <div className="h-14 w-14 flex-shrink-0 rounded-xl bg-slate-50 border border-slate-200 p-1 overflow-hidden">

@@ -6,7 +6,7 @@ import DebounceSearch from "../components/DebounceSearch";
 import CardSkeleton from "../components/CardSkeleton";
 import PaginationControl from "../components/PaginationControl";
 import { capitalize } from "../utils/utils";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Order, Pagination } from "../types";
 import OrderStatusTag from "../utils/OrderStatusTag";
 import { STATUS_LABEL } from "../utils/Constant";
@@ -28,6 +28,7 @@ import {
 
 export const OrderList = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [orders, setOrders] = useState<Order[]>([]);
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -421,7 +422,7 @@ export const OrderList = () => {
                     return (
                       <tr
                         key={order._id}
-                        onClick={() => navigate(`/orders/${order._id}`)}
+                        onClick={() => navigate(`/orders/${order._id}`, { state: { from: location.pathname + location.search } })}
                         className={`hover:bg-slate-50/50 transition-colors duration-150 cursor-pointer ${
                           isSelected ? "bg-blue-50/20" : ""
                         }`}
@@ -523,7 +524,7 @@ export const OrderList = () => {
                             </div>
 
                             <button
-                              onClick={() => navigate(`/orders/${order._id}`)}
+                              onClick={() => navigate(`/orders/${order._id}`, { state: { from: location.pathname + location.search } })}
                               className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition"
                               title="View Order Details"
                             >

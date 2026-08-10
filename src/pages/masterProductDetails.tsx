@@ -6,8 +6,8 @@ import { hasPermission } from "../utils/permission";
 import Breadcrumb from "../components/Breadcrumb";
 import { ConfirmDeleteModal } from "../components/ConfirmDeleteModal";
 import { CreateMasterProductModal } from "../components/CreateMasterProductModal";
+import BackButton from "../components/BackButton";
 import {
-  FaArrowLeft,
   FaEdit,
   FaTrashAlt,
   FaCalendarAlt,
@@ -154,12 +154,7 @@ export function MasterProductDetails() {
         <p className="text-sm text-slate-400 text-center mt-2">
           You do not have the required permissions to view master product details. Please contact your system administrator.
         </p>
-        <button
-          onClick={() => navigate("/master-product-list")}
-          className="mt-6 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition-all shadow-md shadow-blue-500/10 flex items-center gap-2"
-        >
-          <FaArrowLeft size={12} /> Back to Master List
-        </button>
+        <BackButton fallback="/master-product-list" label="Master Product List" variant="button" className="mt-6" />
       </div>
     );
   }
@@ -216,12 +211,7 @@ export function MasterProductDetails() {
         </div>
         <h2 className="text-xl font-bold text-slate-800">Error Loading Details</h2>
         <p className="text-sm text-slate-400 text-center mt-2">{error}</p>
-        <button
-          onClick={() => navigate("/master-product-list")}
-          className="mt-6 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition-all shadow-md shadow-blue-500/10 flex items-center gap-2"
-        >
-          <FaArrowLeft size={12} /> Back to Master List
-        </button>
+        <BackButton fallback="/master-product-list" label="Master Product List" variant="button" className="mt-6" />
       </div>
     );
   }
@@ -241,13 +231,7 @@ export function MasterProductDetails() {
             ]}
           />
           <div className="flex items-center gap-3.5 mt-2">
-            <button
-              onClick={() => navigate("/master-product-list")}
-              className="p-2 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-600 rounded-xl transition-all cursor-pointer"
-              title="Go Back"
-            >
-              <FaArrowLeft size={14} />
-            </button>
+            <BackButton fallback="/master-product-list" label="Master Product List" variant="icon" />
             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">
               {product.name}
             </h1>

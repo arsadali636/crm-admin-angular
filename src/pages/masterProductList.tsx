@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { getCompleteUrlV1 } from "../utils";
 import { httpClient } from "../services/ApiService";
 import { ICategoryServer } from "../types";
@@ -13,6 +13,7 @@ import { FaEdit, FaTrashAlt, FaEye, FaPlus } from "react-icons/fa";
 
 export const MasterProductList = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [products, setProducts] = useState<ICategoryServer[]>([]);
   const [openCreateMaster, setOpenCreateMaster] = useState<boolean>(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
@@ -178,7 +179,7 @@ export const MasterProductList = () => {
                       <tr
                         key={p._id}
                         className="hover:bg-slate-50/50 transition-colors duration-150 cursor-pointer"
-                        onClick={() => canView && navigate(`/master-product/${p._id}`)}
+                        onClick={() => canView && navigate(`/master-product/${p._id}`, { state: { from: location.pathname + location.search } })}
                       >
                         <td className="py-4 px-6 font-semibold text-slate-800">{p.name}</td>
                         <td className="py-4 px-6 font-mono text-xs">{p.skuCode}</td>
@@ -217,7 +218,7 @@ export const MasterProductList = () => {
                           <div className="flex items-center justify-end gap-2.5">
                             {canView && (
                               <button
-                                onClick={() => navigate(`/master-product/${p._id}`)}
+                                onClick={() => navigate(`/master-product/${p._id}`, { state: { from: location.pathname + location.search } })}
                                 className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all cursor-pointer"
                                 title="View Details"
                               >

@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import moment from "moment";
+import BackButton from "../components/BackButton";
 import {
   FiArrowLeft,
   FiMapPin,
@@ -300,13 +301,7 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
       {/* ── 1. STICKY HEADER ── */}
       <header className="sticky top-0 bg-white/90 backdrop-blur-md z-40 border border-slate-100 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all duration-300">
         <div className="flex items-center gap-4">
-          <button
-            onClick={onBack}
-            className="p-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-500 hover:text-slate-700 transition cursor-pointer flex items-center justify-center shadow-xs"
-            title="Back to Product List"
-          >
-            <FiArrowLeft size={16} />
-          </button>
+          <BackButton onClick={onBack} fallback="/products" label="Products" variant="icon" />
           
           <div className="min-w-0">
             <div className="flex items-center flex-wrap gap-2.5">

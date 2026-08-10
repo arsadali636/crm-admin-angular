@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { getCompleteUrlV1 } from "../utils";
 import { httpClient } from "../services/ApiService";
 import moment from "moment";
@@ -8,8 +8,8 @@ import StatusTag from "../utils/StatusTag";
 import { Order } from "../types";
 import Breadcrumb from "../components/Breadcrumb";
 import OrderStatusTag from "../utils/OrderStatusTag";
+import BackButton from "../components/BackButton";
 import {
-  FaArrowLeft,
   FaPrint,
   FaDownload,
   FaUser,
@@ -29,7 +29,6 @@ import {
 
 export const OrderDetail = () => {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const [order, setOrder] = useState<Order | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -98,9 +97,7 @@ export const OrderDetail = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             <div className="h-48 bg-slate-200 rounded animate-pulse" />
-            <div className="h-64 bg-slate-200 rounded animate-pulse" />
           </div>
-          <div className="h-96 bg-slate-200 rounded animate-pulse" />
         </div>
       </div>
     );
@@ -108,23 +105,19 @@ export const OrderDetail = () => {
 
   if (!order) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 bg-white border rounded-2xl shadow-sm max-w-md mx-auto mt-10">
-        <FaBoxOpen size={48} className="text-slate-300 mb-4 animate-bounce" />
-        <h3 className="text-lg font-bold text-slate-800">Order Not Found</h3>
-        <p className="text-sm text-slate-400 mt-1">The requested order details could not be loaded.</p>
-        <button
-          onClick={() => navigate("/orders")}
-          className="mt-6 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition shadow-md shadow-blue-500/10 flex items-center gap-2"
-        >
-          <FaArrowLeft size={12} /> Back to Orders
-        </button>
+      <div className="bg-white rounded-2xl p-12 text-center border border-slate-100 shadow-sm space-y-4 max-w-md mx-auto mt-10">
+        <div className="w-12 h-12 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
+          <FaInfoCircle size={20} />
+        </div>
+        <h2 className="text-lg font-bold text-slate-800">Order Not Found</h2>
+        <p className="text-xs text-slate-400">The requested order ID could not be located in CRM database.</p>
+        <BackButton fallback="/orders" label="Order List" variant="button" className="mt-4" />
       </div>
     );
   }
 
-  // B2B Commissions Calculations
-  const totalPromoterCommission = order.order_items.reduce(
-    (sum, item) => sum + (item.promoterCommission || 0),
+  const totalPromoterCommission = (order.order_items || []).reduce(
+    (sum, item) => sum + ((item as any).commissionAmount || item.promoterCommission || 0),
     0
   );
   const connectorCommission = Math.round(order.totalAmount * 0.02); // 2% connector fee
@@ -149,12 +142,7 @@ export const OrderDetail = () => {
             ]}
           />
           <div className="flex items-center gap-3 mt-2">
-            <button
-              onClick={() => navigate("/orders")}
-              className="p-2 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-600 rounded-xl transition cursor-pointer"
-            >
-              <FaArrowLeft size={13} />
-            </button>
+            <BackButton fallback="/orders" label="Order List" variant="icon" />
             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">
               Order #{order.numericOrderId}
             </h1>

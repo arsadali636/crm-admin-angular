@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import Breadcrumb from "../components/Breadcrumb";
 import { walletStore, WalletAccount } from "../utils/walletStore";
 import { WalletManualOperationModal } from "../components/WalletManualOperationModal";
@@ -40,6 +40,7 @@ const RoleBadge = ({ role }: { role: string }) => {
 
 export const WalletAccounts = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [accounts, setAccounts] = useState<WalletAccount[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
@@ -342,7 +343,7 @@ export const WalletAccounts = () => {
                   <td className="px-5 py-4">
                     <div className="flex items-center justify-center gap-2">
                       <button
-                        onClick={() => navigate(`/wallet/details?id=${acc.id}`)}
+                        onClick={() => navigate(`/wallet/details?id=${acc.id}`, { state: { from: location.pathname + location.search } })}
                         className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors cursor-pointer"
                         title="View Details"
                       >
@@ -436,7 +437,7 @@ export const WalletAccounts = () => {
 
             <div className="flex gap-2 pt-2 border-t border-slate-50">
               <button
-                onClick={() => navigate(`/wallet/details?id=${acc.id}`)}
+                onClick={() => navigate(`/wallet/details?id=${acc.id}`, { state: { from: location.pathname + location.search } })}
                 className="flex-1 py-1.5 text-[10px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg text-center transition-all cursor-pointer"
               >
                 View
