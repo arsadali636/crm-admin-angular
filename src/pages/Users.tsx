@@ -23,13 +23,17 @@ import {
   AlertCircle,
   Briefcase,
   Columns,
-  Upload
+  Upload,
+  Wallet,
+  History as HistoryIcon
 } from "lucide-react";
 
 // Import custom subcomponents
 import { UserStatsCard } from "../components/users/UserStatsCard";
 import { FilterDrawer, FilterState, initialFilters } from "../components/users/FilterDrawer";
 import { UserDetails } from "../components/users/UserDetails";
+import { PromoterManageCommissionDrawer } from "../components/users/PromoterManageCommissionDrawer";
+import { FaCoins } from "react-icons/fa";
 
 /* ═══════════════════════════════════════════════════
    ROLE BADGES MAP
@@ -99,6 +103,13 @@ const Users = () => {
   const [sortField, setSortField] = useState<keyof IUser | "name" | "wallet" | "orders" | "registered" | "">("");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
 
+  // Promoter Commission Drawer State
+  const [manageCommissionState, setManageCommissionState] = useState<{
+    isOpen: boolean;
+    user: IUser | null;
+    initialTab: "add" | "history";
+  }>({ isOpen: false, user: null, initialTab: "history" });
+
   // Column Visibility
   const [columnVisibility, setColumnVisibility] = useState({
     avatar: true,
@@ -113,6 +124,10 @@ const Users = () => {
     orders: true,
     registered: true,
     lastLogin: true,
+    totalCommission: false,
+    pendingCommission: false,
+    scheduledCommission: false,
+    releasedCommission: false,
   });
   const [isColMenuOpen, setIsColMenuOpen] = useState(false);
 
@@ -739,7 +754,6 @@ const Users = () => {
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      
       {/* ── TOAST NOTIFICATIONS ── */}
       <AnimatePresence>
         {toast && (
@@ -1132,8 +1146,9 @@ const Users = () => {
                           <div className="fixed inset-0 z-10" onClick={() => setOpenRowMenuId(null)} />
                           <div
                             ref={rowMenuRef}
-                            className="absolute right-6 top-6 bg-white border border-slate-100 rounded-xl shadow-xl z-20 py-1.5 w-44 text-left space-y-0.5 text-xs text-slate-700"
+                            className="absolute right-6 top-6 bg-white border border-slate-100 rounded-xl shadow-xl z-20 py-1.5 w-48 text-left space-y-0.5 text-xs text-slate-700"
                           >
+                            {/* Standard Actions */}
                             <button
                               onClick={() => {
                                 setOpenRowMenuId(null);
@@ -1142,24 +1157,59 @@ const Users = () => {
                               className="w-full px-3 py-1.5 hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
                             >
                               <Eye size={13} />
-                              View Profile
+                              View User
                             </button>
-                            
+
                             <button
                               onClick={() => {
                                 setOpenRowMenuId(null);
                                 handleSelectUser(u._id || "");
-                                // Automatically triggers edit mode inside details page
-                                setTimeout(() => {
-                                  const editBtn = document.querySelector('[title="Edit Profile"]') || document.body;
-                                  if (editBtn) (editBtn as HTMLButtonElement).click();
-                                }, 200);
                               }}
                               className="w-full px-3 py-1.5 hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
                             >
-                              <UserPlus size={13} />
-                              Edit Profile
+                              <Wallet size={13} />
+                              View Wallet
                             </button>
+
+                            <button
+                              onClick={() => {
+                                setOpenRowMenuId(null);
+                                handleSelectUser(u._id || "");
+                              }}
+                              className="w-full px-3 py-1.5 hover:bg-slate-50 text-slate-700 flex items-center gap-2 cursor-pointer"
+                            >
+                              <ShoppingCart size={13} />
+                              View Orders
+                            </button>
+
+                            {/* PROMOTER ONLY ACTIONS */}
+                            {(u.role || []).some((r) => typeof r === "string" && r.toLowerCase() === "promoter") && (
+                              <>
+                                <div className="h-px bg-slate-100 my-1" />
+                                <button
+                                  onClick={() => {
+                                    setOpenRowMenuId(null);
+                                    setManageCommissionState({ isOpen: true, user: u, initialTab: "add" });
+                                  }}
+                                  className="w-full px-3 py-1.5 hover:bg-amber-50 text-amber-800 flex items-center gap-2 cursor-pointer font-bold"
+                                >
+                                  <FaCoins size={13} className="text-amber-500" />
+                                  Manage Commission
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setOpenRowMenuId(null);
+                                    setManageCommissionState({ isOpen: true, user: u, initialTab: "history" });
+                                  }}
+                                  className="w-full px-3 py-1.5 hover:bg-amber-50 text-amber-800 flex items-center gap-2 cursor-pointer font-bold"
+                                >
+                                  <HistoryIcon size={13} className="text-amber-600" />
+                                  Commission History
+                                </button>
+                              </>
+                            )}
+
+                            <div className="h-px bg-slate-100 my-1" />
 
                             {u.status !== "active" && (
                               <button
@@ -1456,6 +1506,13 @@ const Users = () => {
         )}
       </AnimatePresence>
 
+      {/* ── PROMOTER MANAGE COMMISSION DRAWER ── */}
+      <PromoterManageCommissionDrawer
+        isOpen={manageCommissionState.isOpen}
+        user={manageCommissionState.user}
+        initialTab={manageCommissionState.initialTab}
+        onClose={() => setManageCommissionState((prev) => ({ ...prev, isOpen: false, user: null }))}
+      />
     </div>
   );
 };

@@ -1,23 +1,31 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { Status } from "../types";
 import { IFilterType } from "../pages/Products";
 import moment from "moment";
-import Breadcrumb from "./Breadcrumb";
 import {
   FiMoreVertical,
   FiSearch,
   FiEye,
   FiEdit2,
-  FiTrash2,
   FiCheckCircle,
   FiXCircle,
   FiChevronDown,
   FiChevronLeft,
   FiChevronRight,
+  FiFilter,
+  FiCopy,
+  FiUser,
+  FiBox,
+  FiCheck,
+  FiMaximize2
 } from "react-icons/fi";
 import { FaBox, FaFolder } from "react-icons/fa";
 import { httpClient } from "../services/ApiService";
 import { getCompleteUrlV1 } from "../utils";
+import { useNavigate } from "react-router-dom";
+import { ProductDeactivateModal } from "./ProductDeactivateModal";
+import { ProductQuickViewModal } from "./ProductQuickViewModal";
+import { ProductFilterPanel, ProductFilterState } from "./ProductFilterPanel";
 
 type Lot = {
   quantity: number;
@@ -54,11 +62,17 @@ export type Product = {
   maxDiscount?: number;
   minDiscount?: number;
   mrp?: number;
+  availableInventory?: number;
   masterDetails?: MasterDetails;
   categoryDetails?: any;
+  productCategoryDetails?: any;
+  subCategoryDetails?: any;
+  sellerDetails?: any;
   connectorCommission?: number;
   promoterCommission?: number;
   platformFee?: number;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 type Pagination = {
@@ -74,8 +88,6 @@ export type ApiResponse = {
   data: Product[];
   pagination: Pagination;
 };
-
-import { useNavigate } from "react-router-dom";
 
 interface ProductAdminTableProps {
   response: ApiResponse;
@@ -97,7 +109,8 @@ const PaginationControl: React.FC<{
   return (
     <div className="flex items-center justify-between px-6 py-4 bg-slate-50/50 border-t border-slate-100">
       <div className="text-xs text-slate-400 font-medium">
-        Showing <span className="text-slate-700 font-semibold">{page}</span> of <span className="text-slate-700 font-semibold">{totalPages}</span> pages ({totalCount} total products)
+        Showing <span className="text-slate-700 font-semibold">{page}</span> of{" "}
+        <span className="text-slate-700 font-semibold">{totalPages}</span> pages ({totalCount} total products)
       </div>
       <div className="flex items-center gap-2">
         <button
@@ -131,7 +144,7 @@ export function ProductAdminTable({
   onEdit,
 }: ProductAdminTableProps) {
   const navigate = useNavigate();
-  const products = response?.data || [];
+  const rawProducts = response?.data || [];
   const pagination = response?.pagination || {
     totalCount: 0,
     page: 1,
@@ -139,9 +152,21 @@ export function ProductAdminTable({
     totalPages: 1,
   };
 
+  // State management
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState(filters.search || "");
+  const [sortOption, setSortOption] = useState<string>("newest");
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Modals & Drawers
+  const [openFilterPanel, setOpenFilterPanel] = useState<boolean>(false);
+  const [quickViewProduct, setQuickViewProduct] = useState<any | null>(null);
+  const [deactivateProduct, setDeactivateProduct] = useState<any | null>(null);
+
+  // Filter state
+  const [extraFilters, setExtraFilters] = useState<ProductFilterState>({});
+
   const [kpiCounts, setKpiCounts] = useState({
     total: 0,
     active: 0,
@@ -154,40 +179,89 @@ export function ProductAdminTable({
     setTimeout(() => setToast(null), 3000);
   };
 
-  // Debounced search logic
-  useEffect(() => {
-    const delayDebounceFn = setTimeout(() => {
-      onStatusFilterSelect({
-        ...filters,
-        search: searchTerm || undefined,
-        page: 1,
-      });
-    }, 400);
+  // 1. Strict filtering: Pending and Rejected belong to Approvals, not Active/Inactive Products list
+  const activeInactiveProducts = useMemo(() => {
+    return rawProducts.filter((p: any) => p.status === "active" || p.status === "inactive");
+  }, [rawProducts]);
 
-    return () => clearTimeout(delayDebounceFn);
-  }, [searchTerm]);
+  // 2. Client-side Search and Filters
+  const filteredProducts = useMemo(() => {
+    return activeInactiveProducts.filter((p: any) => {
+      // Search term
+      if (searchTerm.trim()) {
+        const query = searchTerm.toLowerCase().trim();
+        const name = (p.masterDetails?.name || p.productName || p.name || "").toLowerCase();
+        const sku = (p.masterDetails?.skuCode || p.skuCode || p.sellerSku || "").toLowerCase();
+        const seller = (p.sellerDetails?.businessName || p.sellerName || "").toLowerCase();
+        
+        if (!name.includes(query) && !sku.includes(query) && !seller.includes(query)) {
+          return false;
+        }
+      }
+
+      // Extra Filters
+      if (extraFilters.status && p.status !== extraFilters.status) return false;
+      if (extraFilters.categoryId && p.categoryDetails?._id !== extraFilters.categoryId) return false;
+      if (extraFilters.stockStatus) {
+        const inv = p.availableInventory !== undefined ? p.availableInventory : p.stock || 0;
+        if (extraFilters.stockStatus === "out_of_stock" && inv > 0) return false;
+        if (extraFilters.stockStatus === "in_stock" && inv <= 0) return false;
+        if (extraFilters.stockStatus === "low_stock" && (inv <= 0 || inv >= 1000)) return false;
+      }
+      if (extraFilters.isFeatured) {
+        if (extraFilters.isFeatured === "featured" && !p.isFeatured) return false;
+        if (extraFilters.isFeatured === "not_featured" && p.isFeatured) return false;
+      }
+
+      return true;
+    });
+  }, [activeInactiveProducts, searchTerm, extraFilters]);
+
+  // 3. Sorting
+  const sortedProducts = useMemo(() => {
+    const list = [...filteredProducts];
+    switch (sortOption) {
+      case "oldest":
+        return list.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+      case "price_low_high":
+        return list.sort((a, b) => (a.minPrice || 0) - (b.minPrice || 0));
+      case "price_high_low":
+        return list.sort((a, b) => (b.minPrice || 0) - (a.minPrice || 0));
+      case "discount_low_high":
+        return list.sort((a, b) => (a.maxDiscount || 0) - (b.maxDiscount || 0));
+      case "discount_high_low":
+        return list.sort((a, b) => (b.maxDiscount || 0) - (a.maxDiscount || 0));
+      case "inventory_low_high":
+        return list.sort((a, b) => (a.availableInventory || 0) - (b.availableInventory || 0));
+      case "inventory_high_low":
+        return list.sort((a, b) => (b.availableInventory || 0) - (a.availableInventory || 0));
+      case "recently_updated":
+        return list.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+      case "newest":
+      default:
+        return list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    }
+  }, [filteredProducts, sortOption]);
 
   // Load KPI metrics
   const fetchKpiData = async () => {
     try {
-      const [totalRes, activeRes, inactiveRes, pendingRes] = await Promise.all([
+      const [totalRes, activeRes, inactiveRes] = await Promise.all([
         httpClient.get(getCompleteUrlV1("product", { limit: 1 })),
         httpClient.get(getCompleteUrlV1("product", { limit: 1, status: Status.Active })),
         httpClient.get(getCompleteUrlV1("product", { limit: 1, status: Status.Inactive })),
-        httpClient.get(getCompleteUrlV1("product", { limit: 1, status: Status.Pending })),
       ]);
 
-      const [totalJson, activeJson, inactiveJson, pendingJson] = await Promise.all([
+      const [totalJson, activeJson, inactiveJson] = await Promise.all([
         totalRes.json(),
         activeRes.json(),
         inactiveRes.json(),
-        pendingRes.json(),
       ]);
 
       setKpiCounts({
         total: totalJson.pagination?.totalCount || 0,
         active: activeJson.pagination?.totalCount || 0,
-        inactive: (inactiveJson.pagination?.totalCount || 0) + (pendingJson.pagination?.totalCount || 0),
+        inactive: inactiveJson.pagination?.totalCount || 0,
         categories: categories.length,
       });
     } catch (err) {
@@ -199,46 +273,18 @@ export function ProductAdminTable({
     fetchKpiData();
   }, [categories, response]);
 
-  // Redesign Actions Handlers
-  const handleEditProduct = (p: Product) => {
-    onEdit(p);
+  const handleCopyLink = (p: Product) => {
+    const url = `${window.location.origin}/products`;
+    navigator.clipboard.writeText(url);
+    setCopiedId(p._id);
+    showToast("Product link copied to clipboard!", "info");
+    setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleToggleStatus = async (p: Product) => {
-    const newStatus = p.status === "active" ? "inactive" : "active";
-    try {
-      const res = await httpClient.put(getCompleteUrlV1("product"), {
-        id: p._id,
-        status: newStatus,
-      });
-      if (res.ok) {
-        showToast(`Product status successfully set to ${newStatus}.`, "success");
-        setRefreshTrigger((prev) => !prev);
-      } else {
-        // Fallback alert for demo/unimplemented backend
-        showToast(`Locally updated status to: ${newStatus}`, "info");
-      }
-    } catch (err) {
-      console.error(err);
-      showToast("Network error updating status.", "error");
-    }
-  };
-
-  const handleDeleteProduct = async (p: Product) => {
-    const confirmed = window.confirm(`Are you sure you want to delete "${p.masterDetails?.name || "this product"}"?`);
-    if (!confirmed) return;
-    try {
-      const res = await httpClient.delete(getCompleteUrlV1(`product/${p._id}`));
-      if (res.ok) {
-        showToast("Product deleted successfully.", "success");
-        setRefreshTrigger((prev) => !prev);
-      } else {
-        showToast("Failed to delete product from server.", "error");
-      }
-    } catch (err) {
-      console.error(err);
-      showToast("Network error deleting product.", "error");
-    }
+  const handleResetSearchAndFilters = () => {
+    setSearchTerm("");
+    setExtraFilters({});
+    onStatusFilterSelect({ page: 1, status: null });
   };
 
   return (
@@ -246,34 +292,21 @@ export function ProductAdminTable({
       {/* Toast Notification */}
       {toast && (
         <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-5 py-3.5 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-5 duration-300 border border-slate-800">
-          <span className={`w-2 h-2 rounded-full ${
-            toast.type === "success" ? "bg-emerald-500" : toast.type === "error" ? "bg-red-500" : "bg-blue-500"
-          }`} />
+          <span
+            className={`w-2 h-2 rounded-full ${
+              toast.type === "success"
+                ? "bg-emerald-500"
+                : toast.type === "error"
+                ? "bg-red-500"
+                : "bg-blue-500"
+            }`}
+          />
           <span className="text-sm font-semibold">{toast.message}</span>
         </div>
       )}
 
-      {/* Header and Breadcrumb */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <Breadcrumb
-            items={[
-              { label: "Dashboard", to: "/dashboard" },
-              { label: "Products", to: "/products" },
-            ]}
-          />
-          <h1 className="text-2xl font-bold text-slate-800 tracking-tight mt-1">
-            Products Directory
-          </h1>
-          <p className="text-sm text-slate-400 font-medium">
-            Search, filter and manage all seller products in Lottmart
-          </p>
-        </div>
-      </div>
-
       {/* KPI Stats Section */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        {/* Total Products */}
         <div
           onClick={() => onStatusFilterSelect({ ...filters, status: null, page: 1 })}
           className={`bg-white rounded-2xl p-5 border shadow-sm flex items-center gap-4 hover:shadow-md transition-all cursor-pointer hover:-translate-y-0.5 active:scale-[0.98] ${
@@ -284,12 +317,11 @@ export function ProductAdminTable({
             <FaBox size={18} />
           </div>
           <div>
-            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Total Products</p>
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Total Active & Inactive</p>
             <h3 className="text-2xl font-extrabold text-slate-800 mt-0.5">{kpiCounts.total}</h3>
           </div>
         </div>
 
-        {/* Active Products */}
         <div
           onClick={() => onStatusFilterSelect({ ...filters, status: Status.Active, page: 1 })}
           className={`bg-white rounded-2xl p-5 border shadow-sm flex items-center gap-4 hover:shadow-md transition-all cursor-pointer hover:-translate-y-0.5 active:scale-[0.98] ${
@@ -305,7 +337,6 @@ export function ProductAdminTable({
           </div>
         </div>
 
-        {/* Inactive Products */}
         <div
           onClick={() => onStatusFilterSelect({ ...filters, status: Status.Inactive, page: 1 })}
           className={`bg-white rounded-2xl p-5 border shadow-sm flex items-center gap-4 hover:shadow-md transition-all cursor-pointer hover:-translate-y-0.5 active:scale-[0.98] ${
@@ -321,7 +352,6 @@ export function ProductAdminTable({
           </div>
         </div>
 
-        {/* Categories */}
         <div
           onClick={() => navigate("/category-list")}
           className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-all cursor-pointer hover:-translate-y-0.5 active:scale-[0.98]"
@@ -338,120 +368,117 @@ export function ProductAdminTable({
 
       {/* Main SaaS Data Grid Panel */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-        {/* Filters and Search Toolbar */}
-        <div className="flex flex-col md:flex-row gap-4 justify-between items-center p-5 border-b border-slate-100 bg-slate-50/20">
+        {/* Filters, Search & Sorting Toolbar */}
+        <div className="flex flex-col lg:flex-row gap-4 justify-between items-center p-5 border-b border-slate-100 bg-slate-50/20">
           {/* Search Input */}
-          <div className="relative w-full md:w-96">
+          <div className="relative w-full lg:w-96">
             <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
               <FiSearch size={15} />
             </span>
             <input
               type="text"
-              placeholder="Search by product name..."
+              placeholder="Search products..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 pr-4 py-2.5 w-full border border-slate-200 rounded-xl bg-slate-50/50 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-slate-700"
+              className="pl-10 pr-4 py-2.5 w-full border border-slate-200 rounded-xl bg-white text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-slate-700 shadow-2xs"
             />
           </div>
 
-          {/* Filters (Category & Status) */}
-          <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
-            {/* Category Filter */}
-            <div className="relative w-full sm:w-48">
+          {/* Filter & Sorting Controls */}
+          <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto justify-end">
+            {/* Sorting Dropdown */}
+            <div className="relative">
               <select
-                value={filters.categoryId || ""}
-                onChange={(e) => {
-                  onStatusFilterSelect({
-                    ...filters,
-                    categoryId: e.target.value || undefined,
-                    page: 1,
-                  });
-                }}
-                className="appearance-none pl-3.5 pr-10 py-2.5 w-full border border-slate-200 rounded-xl bg-white text-xs font-semibold text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all hover:border-slate-300"
+                value={sortOption}
+                onChange={(e) => setSortOption(e.target.value)}
+                className="appearance-none pl-3.5 pr-9 py-2.5 border border-slate-200 rounded-xl bg-white text-xs font-bold text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all hover:border-slate-300 shadow-2xs"
               >
-                <option value="">All Categories</option>
-                {categories.map((c: any) => (
-                  <option key={c._id} value={c._id}>
-                    {c.name}
-                  </option>
-                ))}
+                <option value="newest">Sort: Newest</option>
+                <option value="oldest">Sort: Oldest</option>
+                <option value="price_low_high">Price: Low → High</option>
+                <option value="price_high_low">Price: High → Low</option>
+                <option value="discount_low_high">Discount: Low → High</option>
+                <option value="discount_high_low">Discount: High → Low</option>
+                <option value="inventory_low_high">Inventory: Low → High</option>
+                <option value="inventory_high_low">Inventory: High → Low</option>
+                <option value="recently_updated">Recently Updated</option>
               </select>
-              <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
                 <FiChevronDown size={14} />
               </div>
             </div>
 
-            {/* Status Filter */}
-            <div className="relative w-full sm:w-40">
-              <select
-                value={filters.status || ""}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  onStatusFilterSelect({
-                    ...filters,
-                    status: val === "" ? null : (val as Status),
-                    page: 1,
-                  });
-                }}
-                className="appearance-none pl-3.5 pr-10 py-2.5 w-full border border-slate-200 rounded-xl bg-white text-xs font-semibold text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all hover:border-slate-300"
-              >
-                <option value="">All Statuses</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-              <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                <FiChevronDown size={14} />
-              </div>
-            </div>
+            {/* Filter Panel Trigger Button */}
+            <button
+              onClick={() => setOpenFilterPanel(true)}
+              className="px-4 py-2.5 border border-slate-200 rounded-xl bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition flex items-center gap-2 shadow-2xs cursor-pointer"
+            >
+              <FiFilter size={14} className="text-slate-400" />
+              <span>Filter</span>
+            </button>
           </div>
         </div>
 
-        {/* Data Grid Table */}
+        {/* 11-Column Professional B2B CRM Data Grid Table */}
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm font-light border-collapse divide-y divide-slate-100">
             <thead>
-              <tr className="bg-slate-50/70 text-slate-500 text-xs uppercase font-extrabold tracking-wider text-left">
-                <th className="py-3.5 px-5 font-bold w-16">Image</th>
-                <th className="py-3.5 px-5 font-bold">Product Name</th>
-                <th className="py-3.5 px-5 font-bold">Category Hierarchy</th>
-                <th className="py-3.5 px-5 font-bold">Price Range</th>
-                <th className="py-3.5 px-5 font-bold">Discount</th>
-                <th className="py-3.5 px-5 font-bold">Seller</th>
-                <th className="py-3.5 px-5 font-bold">Stock</th>
-                <th className="py-3.5 px-5 font-bold">Status</th>
-                <th className="py-3.5 px-5 font-bold">Created Date</th>
-                <th className="py-3.5 px-5 font-bold w-16 text-center">Actions</th>
+              <tr className="bg-slate-50/70 text-slate-500 text-[11px] uppercase font-black tracking-wider text-left">
+                <th className="py-3.5 px-5 w-16">Product</th>
+                <th className="py-3.5 px-5">SKU</th>
+                <th className="py-3.5 px-5">Seller</th>
+                <th className="py-3.5 px-5">Category</th>
+                <th className="py-3.5 px-5">Lot Price</th>
+                <th className="py-3.5 px-5">Discount</th>
+                <th className="py-3.5 px-5">Inventory</th>
+                <th className="py-3.5 px-5">Featured</th>
+                <th className="py-3.5 px-5">Status</th>
+                <th className="py-3.5 px-5">Updated</th>
+                <th className="py-3.5 px-5 w-16 text-center">Actions</th>
               </tr>
             </thead>
 
             <tbody className="text-slate-600 divide-y divide-slate-100 bg-white">
               {(() => {
-                // Ensure newest products appear first by default (createdAt DESC)
-                const sortedProducts = [...products].sort((a: any, b: any) => {
-                  const timeA = new Date(a.createdAt || a.createdAt_EP || a.mfg || 0).getTime();
-                  const timeB = new Date(b.createdAt || b.createdAt_EP || b.mfg || 0).getTime();
-                  if (timeA && timeB && timeA !== timeB) return timeB - timeA;
-                  return (b._id || "").localeCompare(a._id || "");
-                });
-
                 if (sortedProducts.length === 0) {
                   return (
                     <tr>
-                      <td colSpan={10} className="text-center py-12 text-slate-400 font-medium">
-                        No products found matching the search or filters.
+                      <td colSpan={11} className="text-center py-16 px-6">
+                        <div className="max-w-md mx-auto space-y-3 flex flex-col items-center">
+                          <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-center text-slate-300">
+                            <FiBox size={24} />
+                          </div>
+                          <div>
+                            <h4 className="text-base font-extrabold text-slate-800">
+                              {searchTerm ? "No matching products found." : "No product listings found."}
+                            </h4>
+                            <p className="text-xs text-slate-400 mt-1">
+                              {searchTerm
+                                ? "Try another product name, SKU or seller."
+                                : "Try changing your filters or search criteria."}
+                            </p>
+                          </div>
+                          <button
+                            onClick={handleResetSearchAndFilters}
+                            className="mt-2 px-4 py-2 bg-blue-50 text-blue-600 border border-blue-100 hover:bg-blue-100 rounded-xl text-xs font-bold transition cursor-pointer"
+                          >
+                            Clear Filters
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
                 }
 
-                return sortedProducts.map((p, idx) => {
-                  const title = p.masterDetails?.name || (p as any).productName || p.description || "Unnamed Product";
-                  const brand = p.masterDetails?.brand || (p as any).brandName || (p as any).brand;
-                  const catMain = p.categoryDetails?.name || (p as any).categoryName || "Uncategorized";
-                  const subCat = (p as any).subCategoryDetails?.name || (p as any).subCategory;
-                  const prodSubCat = (p as any).productCategoryDetails?.name || (p as any).productCategory;
-                  const sellerName = (p as any).sellerDetails?.businessName || (p as any).sellerName || (p as any).requester?.firstName || "Cosmetics";
-                  const stockVal = (p as any).stock !== undefined ? (p as any).stock : (p as any).totalStock;
+                return sortedProducts.map((p: any, idx: number) => {
+                  const title = p.masterDetails?.name || p.productName || p.name || "Unnamed Product";
+                  const sku = p.masterDetails?.skuCode || p.skuCode || p.sellerSku || "—";
+                  const sellerName = p.sellerDetails?.businessName || p.sellerName || "—";
+                  const catMain = p.categoryDetails?.name || p.categoryName || "Uncategorized";
+                  const inventoryVal = p.availableInventory !== undefined ? p.availableInventory : p.stock;
+                  const isFeatured = !!p.isFeatured;
+                  const formattedUpdated = p.updatedAt ? moment(p.updatedAt).format("DD MMM YYYY") : "—";
+                  const image = p.media?.[0] || p.masterDetails?.media?.[0];
 
                   return (
                     <tr
@@ -462,186 +489,238 @@ export function ProductAdminTable({
                       }}
                       className="hover:bg-slate-50/70 transition-colors duration-150 relative cursor-pointer"
                     >
-                      {/* Thumbnail Image */}
+                      {/* 1. Product (Thumbnail + Title) */}
                       <td className="py-3.5 px-5 align-middle">
-                        <div className="w-11 h-11 rounded-xl bg-slate-50 border border-slate-200/80 overflow-hidden flex items-center justify-center flex-shrink-0 shadow-2xs">
-                          {p.media?.[0] || p.masterDetails?.media?.[0] ? (
-                            <img
-                              src={p.media?.[0] || p.masterDetails?.media?.[0]}
-                              alt={title}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <FaBox className="text-slate-300" size={16} />
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Product Name & Brand */}
-                      <td className="py-3.5 px-5 align-middle font-medium text-slate-800">
-                        <div
-                          className="max-w-xs truncate text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors"
-                          title={title}
-                        >
-                          {title}
-                        </div>
-                        {brand && (
-                          <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider mt-0.5 block">
-                            {brand}
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Category Hierarchy (Category > Product Category > Sub Category) */}
-                      <td className="py-3.5 px-5 align-middle">
-                        <div className="flex flex-col gap-0.5 max-w-[210px]">
-                          <span className="text-xs font-bold text-slate-800 truncate">
-                            {catMain}
-                          </span>
-                          {(subCat || prodSubCat) && (
-                            <span className="text-[10.5px] font-semibold text-indigo-600 truncate flex items-center gap-1">
-                              {subCat && <span>{subCat}</span>}
-                              {subCat && prodSubCat && <span className="text-slate-300">›</span>}
-                              {prodSubCat && <span className="text-purple-600">{prodSubCat}</span>}
+                        <div className="flex items-center gap-3 min-w-[200px]">
+                          <div className="w-11 h-11 rounded-xl bg-slate-50 border border-slate-200/80 overflow-hidden flex items-center justify-center flex-shrink-0 shadow-2xs">
+                            {image ? (
+                              <img
+                                src={image}
+                                alt={title}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  // Fallback for broken image URLs
+                                  (e.target as HTMLElement).style.display = "none";
+                                }}
+                              />
+                            ) : (
+                              <FaBox className="text-slate-300" size={16} />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div
+                              className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors truncate max-w-[180px]"
+                              title={title}
+                            >
+                              {title}
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-medium block truncate">
+                              ID: {String(p._id || p.id).substring(0, 10)}
                             </span>
-                          )}
+                          </div>
                         </div>
                       </td>
 
-                      {/* Price Range */}
-                      <td className="py-3.5 px-5 align-middle font-bold text-slate-850 font-mono text-xs">
-                        {p.minPrice === p.maxPrice
-                          ? `₹${p.minPrice}`
-                          : `₹${p.minPrice} - ₹${p.maxPrice}`}
+                      {/* 2. SKU */}
+                      <td className="py-3.5 px-5 align-middle font-mono text-xs font-bold text-slate-700">
+                        {sku}
                       </td>
 
-                      {/* Discount Details */}
-                      <td className="py-3.5 px-5 align-middle">
-                        {p.minDiscount === p.maxDiscount ? (
-                          <span className="inline-block px-2.5 py-0.5 text-[10px] font-extrabold bg-emerald-50 text-emerald-700 rounded-md border border-emerald-100">
-                            {p.maxDiscount}% Off
-                          </span>
-                        ) : (
-                          <span className="inline-block px-2.5 py-0.5 text-[10px] font-extrabold bg-emerald-50 text-emerald-700 rounded-md border border-emerald-100">
-                            {p.minDiscount}% - {p.maxDiscount}% Off
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Seller Name */}
+                      {/* 3. Seller */}
                       <td className="py-3.5 px-5 align-middle text-xs font-semibold text-slate-700">
-                        <span className="truncate max-w-[130px] block" title={sellerName}>
+                        <span className="truncate max-w-[140px] block" title={sellerName}>
                           {sellerName}
                         </span>
                       </td>
 
-                      {/* Inventory Badge */}
-                      <td className="py-3.5 px-5 align-middle">
-                        {stockVal === 0 ? (
-                          <span className="inline-block px-2 py-0.5 text-[10px] font-extrabold bg-rose-50 text-rose-700 rounded-md border border-rose-100">
-                            Out of Stock
-                          </span>
-                        ) : stockVal !== undefined && stockVal !== null ? (
-                          <span className="inline-block px-2 py-0.5 text-[10px] font-extrabold bg-blue-50 text-blue-700 rounded-md border border-blue-100">
-                            {stockVal} Units
-                          </span>
+                      {/* 4. Category */}
+                      <td className="py-3.5 px-5 align-middle text-xs font-semibold text-slate-800">
+                        <span className="truncate max-w-[150px] block">{catMain}</span>
+                      </td>
+
+                      {/* 5. Lot Price */}
+                      <td className="py-3.5 px-5 align-middle font-bold text-slate-800 font-mono text-xs whitespace-nowrap">
+                        {p.minPrice !== undefined && p.maxPrice !== undefined
+                          ? p.minPrice === p.maxPrice
+                            ? `₹${p.minPrice}`
+                            : `₹${p.minPrice} – ₹${p.maxPrice}`
+                          : "—"}
+                      </td>
+
+                      {/* 6. Discount */}
+                      <td className="py-3.5 px-5 align-middle whitespace-nowrap">
+                        {p.minDiscount !== undefined && p.maxDiscount !== undefined ? (
+                          p.minDiscount === p.maxDiscount ? (
+                            <span className="inline-block px-2.5 py-0.5 text-[10px] font-extrabold bg-emerald-50 text-emerald-700 rounded-md border border-emerald-100">
+                              {p.maxDiscount}% Off
+                            </span>
+                          ) : (
+                            <span className="inline-block px-2.5 py-0.5 text-[10px] font-extrabold bg-emerald-50 text-emerald-700 rounded-md border border-emerald-100">
+                              {p.minDiscount}% – {p.maxDiscount}%
+                            </span>
+                          )
                         ) : (
-                          <span className="inline-block px-2 py-0.5 text-[10px] font-extrabold bg-emerald-50 text-emerald-700 rounded-md border border-emerald-100">
-                            In Stock
-                          </span>
+                          <span className="text-slate-400 text-xs">—</span>
                         )}
                       </td>
 
-                      {/* Status Badge */}
+                      {/* 7. Inventory (display raw number e.g. 500, NOT 500 Lots per requirement 9 & 32) */}
+                      <td className="py-3.5 px-5 align-middle font-bold text-xs text-slate-800">
+                        {inventoryVal !== undefined ? inventoryVal : "—"}
+                      </td>
+
+                      {/* 8. Featured */}
                       <td className="py-3.5 px-5 align-middle">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-2xs font-extrabold uppercase tracking-wide border ${
-                          p.status === "active"
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200/60"
-                            : "bg-slate-100 text-slate-600 border-slate-200"
-                        }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${
-                            p.status === "active" ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
-                          }`} />
+                        {isFeatured ? (
+                          <span className="inline-block px-2.5 py-0.5 text-[10px] font-extrabold bg-amber-50 text-amber-700 rounded-md border border-amber-200">
+                            Featured
+                          </span>
+                        ) : (
+                          <span className="text-xs font-semibold text-slate-400">No</span>
+                        )}
+                      </td>
+
+                      {/* 9. Status */}
+                      <td className="py-3.5 px-5 align-middle">
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-2xs font-extrabold uppercase tracking-wide border ${
+                            p.status === "active"
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200/60"
+                              : "bg-slate-100 text-slate-600 border-slate-200"
+                          }`}
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              p.status === "active" ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
+                            }`}
+                          />
                           {p.status === "active" ? "Active" : "Inactive"}
                         </span>
                       </td>
 
-                      {/* Created Date */}
+                      {/* 10. Updated */}
                       <td className="py-3.5 px-5 align-middle text-slate-500 text-xs font-medium whitespace-nowrap">
-                        {moment((p as any).createdAt || (p as any).createdAt_EP || p.mfg).isValid()
-                          ? moment((p as any).createdAt || (p as any).createdAt_EP || p.mfg).format("DD MMM YYYY")
-                          : "—"}
+                        {formattedUpdated}
                       </td>
 
-                      {/* Floating Dropdown Actions Menu */}
-                      <td className="py-3.5 px-5 align-middle text-center relative" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveMenuId(activeMenuId === p._id ? null : p._id);
-                          }}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all focus:outline-none cursor-pointer flex items-center justify-center mx-auto"
-                        >
-                          <FiMoreVertical size={16} />
-                        </button>
+                      {/* 11. Actions */}
+                      <td
+                        className="py-3.5 px-5 align-middle text-center relative"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => {
+                              setProductData(p);
+                              setOpenDetail(true);
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
+                            title="View Full Product"
+                          >
+                            <FiEye size={15} />
+                          </button>
 
+                          <button
+                            onClick={() => onEdit(p)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                            title="Edit Product"
+                          >
+                            <FiEdit2 size={15} />
+                          </button>
+
+                          <button
+                            onClick={() => setActiveMenuId(activeMenuId === p._id ? null : p._id)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition focus:outline-none cursor-pointer"
+                          >
+                            <FiMoreVertical size={16} />
+                          </button>
+                        </div>
+
+                        {/* More Actions Dropdown */}
                         {activeMenuId === p._id && (
                           <>
-                            <div
-                              className="fixed inset-0 z-10"
-                              onClick={() => setActiveMenuId(null)}
-                            />
-                            <div className="absolute right-6 mt-1 w-44 bg-white border border-slate-150 rounded-xl shadow-xl py-1.5 z-20 animate-in fade-in slide-in-from-top-1 duration-150 text-left">
+                            <div className="fixed inset-0 z-10" onClick={() => setActiveMenuId(null)} />
+                            <div className="absolute right-6 mt-1 w-48 bg-white border border-slate-150 rounded-2xl shadow-xl py-1.5 z-20 text-left animate-in fade-in duration-150">
                               <button
                                 onClick={() => {
                                   setActiveMenuId(null);
-                                  setProductData(p);
-                                  setOpenDetail(true);
+                                  setQuickViewProduct(p);
                                 }}
-                                className="flex items-center gap-2.5 w-full px-4 py-2 text-xs text-slate-700 hover:bg-indigo-50/50 hover:text-indigo-600 transition-colors font-semibold cursor-pointer"
+                                className="flex items-center gap-2.5 w-full px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition font-medium cursor-pointer"
                               >
-                                <FiEye size={14} className="text-slate-400" />
-                                <span>View Details</span>
+                                <FiMaximize2 size={14} className="text-slate-400" />
+                                <span>Quick View</span>
                               </button>
+
                               <button
                                 onClick={() => {
                                   setActiveMenuId(null);
-                                  handleEditProduct(p);
+                                  handleCopyLink(p);
                                 }}
-                                className="flex items-center gap-2.5 w-full px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium cursor-pointer"
+                                className="flex items-center gap-2.5 w-full px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition font-medium cursor-pointer"
                               >
-                                <FiEdit2 size={14} className="text-slate-400" />
-                                <span>Edit Product</span>
+                                {copiedId === p._id ? (
+                                  <FiCheck size={14} className="text-emerald-500" />
+                                ) : (
+                                  <FiCopy size={14} className="text-slate-400" />
+                                )}
+                                <span>{copiedId === p._id ? "Link Copied!" : "Copy Link"}</span>
                               </button>
+
                               <button
                                 onClick={() => {
                                   setActiveMenuId(null);
-                                  handleToggleStatus(p);
+                                  if (p.sellerDetails?._id || p.sellerId) {
+                                    navigate(`/users`);
+                                  } else {
+                                    showToast("Seller profile not linked.", "info");
+                                  }
                                 }}
-                                className="flex items-center gap-2.5 w-full px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors font-medium cursor-pointer"
+                                className="flex items-center gap-2.5 w-full px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition font-medium cursor-pointer"
+                              >
+                                <FiUser size={14} className="text-slate-400" />
+                                <span>View Seller</span>
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  setActiveMenuId(null);
+                                  if (p.masterDetails?._id || p.masterId) {
+                                    navigate(`/master-products`);
+                                  } else {
+                                    showToast("Master Product details viewed on detail page.", "info");
+                                  }
+                                }}
+                                className="flex items-center gap-2.5 w-full px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition font-medium cursor-pointer"
+                              >
+                                <FiBox size={14} className="text-slate-400" />
+                                <span>View Master Product</span>
+                              </button>
+
+                              <div className="h-px bg-slate-100 my-1" />
+
+                              <button
+                                onClick={() => {
+                                  setActiveMenuId(null);
+                                  setDeactivateProduct(p);
+                                }}
+                                className={`flex items-center gap-2.5 w-full px-4 py-2 text-xs transition font-semibold cursor-pointer ${
+                                  p.status === "active"
+                                    ? "text-rose-600 hover:bg-rose-50"
+                                    : "text-emerald-600 hover:bg-emerald-50"
+                                }`}
                               >
                                 {p.status === "active" ? (
                                   <>
-                                    <FiXCircle size={14} className="text-slate-400" />
+                                    <FiXCircle size={14} className="text-rose-400" />
                                     <span>Deactivate</span>
                                   </>
                                 ) : (
                                   <>
-                                    <FiCheckCircle size={14} className="text-slate-400" />
+                                    <FiCheckCircle size={14} className="text-emerald-400" />
                                     <span>Activate</span>
                                   </>
                                 )}
-                              </button>
-                              <div className="h-px bg-slate-100 my-1" />
-                              <button
-                                onClick={() => {
-                                  setActiveMenuId(null);
-                                  handleDeleteProduct(p);
-                                }}
-                                className="flex items-center gap-2.5 w-full px-4 py-2 text-xs text-red-600 hover:bg-red-50 transition-colors font-semibold cursor-pointer"
-                              >
-                                <FiTrash2 size={14} className="text-red-400" />
-                                <span>Delete</span>
                               </button>
                             </div>
                           </>
@@ -656,11 +735,45 @@ export function ProductAdminTable({
         </div>
 
         {/* Pagination Controls */}
-        <PaginationControl
-          pagination={pagination}
-          onPageChange={onPageChange}
-        />
+        <PaginationControl pagination={pagination} onPageChange={onPageChange} />
       </div>
+
+      {/* Quick View Drawer / Modal */}
+      {quickViewProduct && (
+        <ProductQuickViewModal
+          isOpen={!!quickViewProduct}
+          onClose={() => setQuickViewProduct(null)}
+          product={quickViewProduct}
+          onViewFull={(prod) => {
+            setProductData(prod);
+            setOpenDetail(true);
+          }}
+          onEdit={(prod) => onEdit(prod)}
+        />
+      )}
+
+      {/* Filter Panel Drawer */}
+      <ProductFilterPanel
+        isOpen={openFilterPanel}
+        onClose={() => setOpenFilterPanel(false)}
+        categories={categories}
+        currentFilters={extraFilters}
+        onApply={(newFilters) => setExtraFilters(newFilters)}
+        onReset={() => setExtraFilters({})}
+      />
+
+      {/* Deactivate Confirmation Modal */}
+      {deactivateProduct && (
+        <ProductDeactivateModal
+          isOpen={!!deactivateProduct}
+          onClose={() => setDeactivateProduct(null)}
+          product={deactivateProduct}
+          onSuccess={() => {
+            showToast(`Product status updated successfully.`, "success");
+            setRefreshTrigger((prev) => !prev);
+          }}
+        />
+      )}
     </div>
   );
 }

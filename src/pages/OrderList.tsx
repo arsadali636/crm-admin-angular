@@ -6,7 +6,7 @@ import DebounceSearch from "../components/DebounceSearch";
 import CardSkeleton from "../components/CardSkeleton";
 import PaginationControl from "../components/PaginationControl";
 import { capitalize } from "../utils/utils";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import { Order, Pagination } from "../types";
 import OrderStatusTag from "../utils/OrderStatusTag";
 import { STATUS_LABEL } from "../utils/Constant";
@@ -436,7 +436,13 @@ export const OrderList = () => {
                           />
                         </td>
                         <td className="py-4 px-6 font-bold text-slate-800">
-                          #{order.numericOrderId}
+                          <Link
+                            to={`/orders/${order._id}`}
+                            className="hover:text-blue-600 transition"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            #{order.numericOrderId}
+                          </Link>
                         </td>
                         <td className="py-4 px-6 font-medium text-slate-500">
                           {moment(order.createdAt).local().format("DD-MM-YYYY HH:mm")}
@@ -523,13 +529,14 @@ export const OrderList = () => {
                               )}
                             </div>
 
-                            <button
-                              onClick={() => navigate(`/orders/${order._id}`, { state: { from: location.pathname + location.search } })}
-                              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition"
+                            <Link
+                              to={`/orders/${order._id}`}
+                              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition inline-flex items-center justify-center cursor-pointer"
                               title="View Order Details"
+                              onClick={(e) => e.stopPropagation()}
                             >
                               <FaEye size={13} />
-                            </button>
+                            </Link>
                             <button
                               onClick={() => window.print()}
                               className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition"

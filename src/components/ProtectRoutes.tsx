@@ -9,8 +9,6 @@ import {
   FaUsers,
   FaImage,
   FaThLarge,
-  FaWallet,
-  FaExchangeAlt,
   FaCoins,
   FaFileInvoiceDollar,
   FaChartBar,
@@ -57,9 +55,6 @@ export const ProtectRoute = ({ children }: { children: React.ReactNode }) => {
 
     // Wallet Module Header
     { isHeader: true, label: "Wallet Module" },
-    { path: "/wallet/dashboard", label: "Wallet Dashboard", icon: <FaWallet /> },
-    { path: "/wallet/accounts", label: "Wallet Accounts", icon: <FaUserCircle /> },
-    { path: "/wallet/transactions", label: "Transactions", icon: <FaExchangeAlt /> },
     { path: "/wallet/withdrawals", label: "Withdrawal Requests", icon: <FaCoins /> },
     { path: "/wallet/commission-rules", label: "Commission Rules", icon: <FaFileInvoiceDollar /> },
     { path: "/wallet/analytics", label: "Wallet Analytics", icon: <FaChartBar /> },

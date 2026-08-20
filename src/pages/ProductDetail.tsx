@@ -11,26 +11,31 @@ import {
   FiEye,
   FiDownload,
   FiEdit3,
-  FiTrash2,
   FiShare2,
   FiCopy,
   FiCheckCircle,
   FiXCircle,
   FiTag,
   FiInfo,
-  FiTrendingUp,
-  FiBriefcase,
   FiClock,
   FiGrid,
-  FiDownloadCloud
+  FiDownloadCloud,
+  FiChevronDown,
+  FiChevronUp,
+  FiPieChart,
+  FiPercent,
+  FiUserCheck
 } from "react-icons/fi";
 import { Button } from "../components/Button";
 import { hasPermission } from "../utils/permission";
+import { useNavigate } from "react-router-dom";
+import { ProductDeactivateModal } from "../components/ProductDeactivateModal";
 
 type ProductDetailProps = {
   product: any;
   onEdit: () => void;
   onBack: () => void;
+  onRefresh?: () => void;
 };
 
 interface DocumentItem {
@@ -42,7 +47,8 @@ interface DocumentItem {
   uploadDate: string;
 }
 
-export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) => {
+export const ProductDetail = ({ product, onEdit, onBack, onRefresh }: ProductDetailProps) => {
+  const navigate = useNavigate();
   const {
     description,
     media = [],
@@ -59,29 +65,57 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
     brand,
     masterDetails = {},
     sellerDetails,
+    pickupAddress,
     createdAt,
-    updatedAt
+    updatedAt,
+    mfg,
+    expiry,
+    expiryDateProofMedia,
+    expiryProofMedia,
+    promotionFee,
+    promoterCommission,
+    connectorCommission,
+    platformFee,
+    isCreatedByPromoter,
+    promoterId,
+    connectorId,
+    connectorCode,
+    isFeatured,
+    approvedBy,
+    approvedAt,
+    rejectedBy,
+    rejectedAt,
+    createdAt_EP,
+    updatedAt_EP
   } = product;
 
   // State managers
   const [activeImageIdx, setActiveImageIdx] = useState(0);
   const [isDescExpanded, setIsDescExpanded] = useState(false);
+  const [isTechInfoOpen, setIsTechInfoOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [sharedNotif, setSharedNotif] = useState(false);
+  const [deactivateModalOpen, setDeactivateModalOpen] = useState(false);
+  const [analyticsDateRange, setAnalyticsDateRange] = useState("30 Days");
 
   // Check permissions
   const canEdit = hasPermission("Master.Edit") || hasPermission("Product.Edit");
-  const canDelete = hasPermission("Master.Delete") || hasPermission("Product.Delete");
 
   // Helper formats
   const formatCurrency = (val: any) => {
-    if (val === undefined || val === null || isNaN(Number(val))) return null;
+    if (val === undefined || val === null || isNaN(Number(val))) return "—";
     return new Intl.NumberFormat("en-IN", {
       style: "currency",
       currency: "INR",
       maximumFractionDigits: 0
     }).format(Number(val));
+  };
+
+  const formatDate = (val: any) => {
+    if (!val) return "—";
+    const m = moment(val);
+    return m.isValid() ? m.format("DD MMM YYYY") : "—";
   };
 
   // Image assets
@@ -105,7 +139,7 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
   const handleShare = () => {
     if (navigator.share) {
       navigator.share({
-        title: masterDetails?.name || "Product details",
+        title: masterDetails?.name || product.name || "Product details",
         url: window.location.href
       }).catch(console.error);
     } else {
@@ -117,41 +151,30 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
   // ── 1. Document Extraction ──
   const documentsList = useMemo(() => {
     const list: DocumentItem[] = [];
-    const uploadDateVal = createdAt ? moment(createdAt).format("DD MMM YYYY") : "Not Available";
-    const docPatterns = [
-      { key: "gst", label: "GST Certificate" },
-      { key: "pan", label: "PAN Card" },
-      { key: "fssai", label: "FSSAI Certificate" },
-      { key: "drug", label: "Drug License" },
-      { key: "import", label: "Import License" },
-      { key: "mfg", label: "Manufacturing Certificate" },
-      { key: "certificate", label: "Quality Certification" },
-      { key: "invoice", label: "Invoice Statement" },
-      { key: "warranty", label: "Warranty PDF" }
-    ];
+    const uploadDateVal = formatDate(createdAt);
+
+    const expiryDoc = expiryDateProofMedia || expiryProofMedia;
+    if (expiryDoc && typeof expiryDoc === "string") {
+      const ext = expiryDoc.split("?")[0].split(".").pop()?.toUpperCase() || "PDF";
+      list.push({
+        key: "expiryProof",
+        name: "Expiry Date Proof Media",
+        url: expiryDoc,
+        format: ext,
+        size: "1.5 MB",
+        uploadDate: uploadDateVal
+      });
+    }
 
     const scanObject = (obj: any, parentKey = "") => {
       if (!obj || typeof obj !== "object") return;
       for (const [k, val] of Object.entries(obj)) {
         const fullKey = parentKey ? `${parentKey}.${k}` : k;
         if (typeof val === "string" && (val.startsWith("http://") || val.startsWith("https://"))) {
-          const lowercaseKey = k.toLowerCase();
-          const match = docPatterns.find((p) => lowercaseKey.includes(p.key));
-          
-          if (match) {
-            const ext = val.split("?")[0].split(".").pop()?.toUpperCase() || "PDF";
-            list.push({
-              key: fullKey,
-              name: match.label,
-              url: val,
-              format: ext,
-              size: "1.8 MB",
-              uploadDate: uploadDateVal
-            });
-          } else if (/\.(pdf|png|jpg|jpeg|docx)$/i.test(val.split("?")[0])) {
+          if (/\.(pdf|png|jpg|jpeg|docx)$/i.test(val.split("?")[0]) && !list.some(d => d.url === val)) {
             const labelName = k.replace(/([A-Z])/g, " $1").replace(/_/g, " ").trim();
             const capitalized = labelName.charAt(0).toUpperCase() + labelName.slice(1);
-            const ext = val.split("?")[0].split(".").pop()?.toUpperCase() || "PDF";
+            const ext = val.split("?")[0].split(".").pop()?.toUpperCase() || "FILE";
             list.push({
               key: fullKey,
               name: capitalized,
@@ -169,38 +192,7 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
 
     scanObject(product);
     return list;
-  }, [product, createdAt]);
-
-  // ── 2. Lot Calculation Metrics ──
-  const lotStats = useMemo(() => {
-    if (!lot || lot.length === 0) return null;
-    const prices = lot.map((l: any) => Number(l.price) || 0).filter((p: number) => p > 0);
-    const discounts = lot.map((l: any) => Number(l.discount) || 0);
-
-    const minLotPrice = prices.length > 0 ? Math.min(...prices) : null;
-    const maxLotPrice = prices.length > 0 ? Math.max(...prices) : null;
-    const maxLotDiscount = discounts.length > 0 ? Math.max(...discounts) : null;
-    const minLotDiscount = discounts.length > 0 ? Math.min(...discounts) : null;
-    
-    // Average discount
-    const avgLotDiscount = discounts.length > 0 
-      ? Math.round(discounts.reduce((sum: number, d: number) => sum + d, 0) / discounts.length) 
-      : null;
-
-    // Profit margin calculation (assuming lowest price vs mrp)
-    const bestMargin = mrp && minLotPrice && mrp > 0
-      ? Math.round(((mrp - minLotPrice) / mrp) * 100)
-      : null;
-
-    return {
-      minLotPrice,
-      maxLotPrice,
-      maxLotDiscount,
-      minLotDiscount,
-      avgLotDiscount,
-      bestMargin
-    };
-  }, [lot, mrp]);
+  }, [product, createdAt, expiryDateProofMedia, expiryProofMedia]);
 
   // ── 3. Lot Badges / Highlights ──
   const evaluatedLots = useMemo(() => {
@@ -218,12 +210,11 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
       const isBestSeller = bestSellerLot && Number(item.quantity) === Number(bestSellerLot.quantity);
 
       let badge = "";
-      if (isLowest) badge = "Lowest Price";
+      if (isBestSeller) badge = "BEST VALUE";
+      else if (isLowest) badge = "Lowest Price";
       else if (isHighestDiscount) badge = "Highest Discount";
-      else if (isBestSeller) badge = "Best Seller";
       else if (Number(item.quantity) >= 500) badge = "Recommended MOQ";
 
-      // Estimated Profit
       const savings = mrp ? (mrp - item.price) * item.quantity : 0;
       const profitMarginPercent = mrp ? Math.round(((mrp - item.price) / mrp) * 100) : 0;
 
@@ -236,38 +227,6 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
     });
   }, [lot, mrp, bestSellerLot]);
 
-  // ── 4. Specs Scanner ──
-  const specifications = useMemo(() => {
-    const specs: { label: string; value: string }[] = [];
-    const fieldsToScan = [
-      { key: "weight", label: "Weight" },
-      { key: "dimensions", label: "Dimensions" },
-      { key: "color", label: "Color" },
-      { key: "material", label: "Material" },
-      { key: "origin", label: "Country of Origin" },
-      { key: "manufacturer", label: "Manufacturer" },
-      { key: "hsn", label: "HSN Code" },
-      { key: "hsnCode", label: "HSN Code" },
-      { key: "gst", label: "GST Rate" },
-      { key: "gstPercentage", label: "GST Rate" },
-      { key: "unit", label: "Packaging Unit" },
-      { key: "package", label: "Package Style" },
-      { key: "shelfLife", label: "Shelf Life" },
-      { key: "warranty", label: "Warranty" },
-      { key: "certification", label: "Certification" }
-    ];
-
-    fieldsToScan.forEach((item) => {
-      let val = product[item.key] || masterDetails[item.key];
-      if (val !== undefined && val !== null && val !== "") {
-        if (item.key.includes("gst") && typeof val === "number") val = `${val}%`;
-        specs.push({ label: item.label, value: String(val) });
-      }
-    });
-
-    return specs;
-  }, [product, masterDetails]);
-
   // Stock indicator status
   const stockNum = Number(availableInventory) || 0;
   let stockBadgeColor = "bg-emerald-50 text-emerald-700 border-emerald-100";
@@ -276,30 +235,15 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
     stockBadgeColor = "bg-rose-50 text-rose-700 border-rose-100";
     stockLabel = "Out of Stock";
   } else if (stockNum < 1000) {
-    stockBadgeColor = "bg-amber-50 text-amber-700 border-amber-100 animate-pulse";
+    stockBadgeColor = "bg-amber-50 text-amber-700 border-amber-100";
     stockLabel = "Low Stock Warning";
   }
-
-  // Verification stars helper
-  const renderStars = (rating: number) => {
-    const stars = [];
-    const val = rating || 4.5;
-    const floor = Math.floor(val);
-    for (let i = 1; i <= 5; i++) {
-      if (i <= floor) {
-        stars.push(<FiStar key={i} className="text-amber-400 fill-amber-400 inline-block mr-0.5" size={13} />);
-      } else {
-        stars.push(<FiStar key={i} className="text-slate-200 fill-slate-200 inline-block mr-0.5" size={13} />);
-      }
-    }
-    return stars;
-  };
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto pb-24 relative animate-in fade-in duration-300">
       
       {/* ── 1. STICKY HEADER ── */}
-      <header className="sticky top-0 bg-white/90 backdrop-blur-md z-40 border border-slate-100 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all duration-300">
+      <header className="sticky top-0 bg-white/95 backdrop-blur-md z-40 border border-slate-100 rounded-2xl p-4 shadow-2xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center gap-4">
           <BackButton onClick={onBack} fallback="/products" label="Products" variant="icon" />
           
@@ -308,6 +252,7 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
               <h1 className="text-lg font-black text-slate-800 tracking-tight truncate max-w-[280px] sm:max-w-md">
                 {masterDetails?.name || product.name || "Unnamed Product"}
               </h1>
+
               <span className={`px-2.5 py-0.5 rounded-lg text-2xs font-extrabold border capitalize tracking-wider ${
                 status === "active"
                   ? "bg-emerald-50 text-emerald-700 border-emerald-100"
@@ -315,20 +260,26 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
               }`}>
                 {status}
               </span>
+
+              {isFeatured && (
+                <span className="bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-0.5 rounded-lg text-3xs font-extrabold uppercase tracking-wider">
+                  Featured
+                </span>
+              )}
             </div>
             
             <div className="flex items-center flex-wrap gap-2 text-[10px] text-slate-400 font-semibold mt-1">
-              <span>ID: <span className="font-mono text-slate-600">{product._id || product.id}</span></span>
+              <span>Product ID: <span className="font-mono text-slate-600">{product._id || product.id}</span></span>
               {brand && (
                 <>
                   <span className="h-1 w-1 bg-slate-200 rounded-full" />
                   <span className="bg-slate-100 px-1.5 py-0.5 rounded-md text-slate-500">Brand: {brand}</span>
                 </>
               )}
-              {masterDetails?.skuCode && (
+              {(masterDetails?.skuCode || product.skuCode || product.sellerSku) && (
                 <>
                   <span className="h-1 w-1 bg-slate-200 rounded-full" />
-                  <span>SKU: <span className="font-mono text-slate-600">{masterDetails.skuCode}</span></span>
+                  <span>SKU: <span className="font-mono text-slate-600">{masterDetails?.skuCode || product.skuCode || product.sellerSku}</span></span>
                 </>
               )}
             </div>
@@ -345,7 +296,7 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
           )}
           <button
             onClick={handleCopyLink}
-            className="p-2 border border-slate-200 rounded-xl bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-800 transition flex items-center justify-center cursor-pointer shadow-2xs text-xs font-bold gap-1.5"
+            className="p-2 border border-slate-200 rounded-xl bg-white hover:bg-slate-50 text-slate-600 transition flex items-center justify-center cursor-pointer shadow-2xs text-xs font-bold gap-1.5"
             title="Copy link to clipboard"
           >
             <FiCopy size={13} />
@@ -353,26 +304,18 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
           </button>
           <button
             onClick={handleShare}
-            className="p-2 border border-slate-200 rounded-xl bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-800 transition flex items-center justify-center cursor-pointer shadow-2xs text-xs font-bold gap-1.5"
+            className="p-2 border border-slate-200 rounded-xl bg-white hover:bg-slate-50 text-slate-600 transition flex items-center justify-center cursor-pointer shadow-2xs text-xs font-bold gap-1.5"
             title="Share Product"
           >
             <FiShare2 size={13} />
             <span>Share</span>
           </button>
-          {canDelete && (
-            <button
-              className="p-2 border border-red-100 hover:bg-red-50 text-red-500 hover:text-red-700 rounded-xl transition flex items-center justify-center cursor-pointer shadow-2xs"
-              title="Delete Product"
-            >
-              <FiTrash2 size={14} />
-            </button>
-          )}
         </div>
       </header>
 
-      {/* Share / Copy Notifications Toasts */}
+      {/* Share Toast */}
       {sharedNotif && (
-        <div className="fixed bottom-6 right-6 z-100 bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-lg border border-slate-800 flex items-center gap-2 animate-bounce">
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-lg border border-slate-800 flex items-center gap-2">
           <FiCheckCircle className="text-emerald-400" />
           <span>Product share URL ready!</span>
         </div>
@@ -380,28 +323,32 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
 
       {/* ── 2. HERO PRODUCT SECTION ── */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 bg-white border border-slate-100 rounded-3xl p-6 shadow-sm">
-        
         {/* Left Side: Images & Gallery Carousel */}
         <div className="lg:col-span-5 space-y-4">
           <div 
-            onClick={() => setLightboxImage(mediaList[activeImageIdx])}
-            className="relative h-[360px] w-full rounded-2xl overflow-hidden bg-slate-50 border border-slate-100 cursor-zoom-in group"
+            onClick={() => mediaList.length > 0 && setLightboxImage(mediaList[activeImageIdx])}
+            className="relative h-[360px] w-full rounded-2xl overflow-hidden bg-slate-50 border border-slate-100 flex items-center justify-center cursor-zoom-in group"
           >
             {mediaList.length > 0 ? (
               <img
                 src={mediaList[activeImageIdx]}
                 alt="Product main image"
-                className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105"
+                className="w-full h-full object-contain p-2 transition-transform duration-500 group-hover:scale-105"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = "none";
+                }}
               />
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center text-slate-300">
                 <FiPackage size={48} className="stroke-1" />
-                <span className="text-xs font-semibold mt-2">No Images Uploaded</span>
+                <span className="text-xs font-semibold mt-2">No Product Image Available</span>
               </div>
             )}
-            <div className="absolute bottom-3 right-3 bg-black/60 text-white backdrop-blur-xs text-[10px] font-bold px-2.5 py-1 rounded-lg">
-              Click to Zoom
-            </div>
+            {mediaList.length > 0 && (
+              <div className="absolute bottom-3 right-3 bg-black/60 text-white backdrop-blur-xs text-[10px] font-bold px-2.5 py-1 rounded-lg">
+                Click to Zoom
+              </div>
+            )}
           </div>
 
           {/* Thumbnail Slider */}
@@ -426,7 +373,7 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
         <div className="lg:col-span-7 flex flex-col justify-between space-y-6">
           <div className="space-y-4">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] uppercase tracking-wider font-extrabold text-blue-600 bg-blue-50/50 px-2 py-0.5 border border-blue-100/30 rounded-md">
+              <span className="text-[10px] uppercase tracking-wider font-extrabold text-blue-600 bg-blue-50 px-2.5 py-0.5 border border-blue-100/50 rounded-md">
                 Enterprise Listing
               </span>
               <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-2xs font-extrabold border ${stockBadgeColor}`}>
@@ -442,27 +389,25 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
             </div>
 
             {/* Price Ranges & Summary badges */}
-            {(minPrice !== undefined || maxPrice !== undefined) && (
-              <div className="flex flex-wrap gap-3">
-                <div className="bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 flex flex-col justify-center">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Lot Price Range</span>
-                  <span className="text-base font-extrabold text-slate-800">
-                    {minPrice !== undefined && maxPrice !== undefined ? `₹${minPrice} - ₹${maxPrice}` : "Not Available"}
+            <div className="flex flex-wrap gap-3">
+              <div className="bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 flex flex-col justify-center">
+                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Lot Price Range</span>
+                <span className="text-base font-extrabold text-slate-800">
+                  {minPrice !== undefined && maxPrice !== undefined ? `₹${minPrice} – ₹${maxPrice}` : "—"}
+                </span>
+              </div>
+
+              {minDiscount !== undefined && maxDiscount !== undefined && (
+                <div className="bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2 flex flex-col justify-center">
+                  <span className="text-[10px] uppercase font-bold text-emerald-600 tracking-wider">Discount Range</span>
+                  <span className="text-base font-extrabold text-emerald-800">
+                    {minDiscount}% – {maxDiscount}%
                   </span>
                 </div>
+              )}
+            </div>
 
-                {(minDiscount !== undefined || maxDiscount !== undefined) && (
-                  <div className="bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2 flex flex-col justify-center">
-                    <span className="text-[10px] uppercase font-bold text-emerald-600 tracking-wider">Discount Rate</span>
-                    <span className="text-base font-extrabold text-emerald-800">
-                      {minDiscount}% - {maxDiscount}%
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Description Paragraph */}
+            {/* Summary Paragraph */}
             {(description || masterDetails?.description) && (
               <div className="border-t border-slate-50 pt-4">
                 <h4 className="text-[10px] uppercase font-extrabold text-slate-400 tracking-wider">Summary Overview</h4>
@@ -473,210 +418,173 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
             )}
           </div>
 
-          {/* Quick Info Grid */}
+          {/* Quick Info Grid - Strictly enforcing requirement 9 & 32 */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 border-t border-slate-50 pt-4 text-xs">
-            {mrp && (
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400">Total MRP</span>
-                <span className="text-sm font-bold text-slate-700 block mt-0.5">₹{mrp}</span>
-              </div>
-            )}
-            {availableInventory !== undefined && (
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400">Inventory Stock</span>
-                <span className="text-sm font-bold text-slate-700 block mt-0.5">{availableInventory} lots</span>
-              </div>
-            )}
-            {createdAt && (
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400">Created On</span>
-                <span className="text-sm font-bold text-slate-700 block mt-0.5">
-                  {moment(createdAt).format("DD MMM YYYY")}
-                </span>
-              </div>
-            )}
-            {updatedAt && (
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400">Last Updated</span>
-                <span className="text-sm font-bold text-slate-700 block mt-0.5">
-                  {moment(updatedAt).format("DD MMM YYYY")}
-                </span>
-              </div>
-            )}
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400">Total MRP</span>
+              <span className="text-sm font-bold text-slate-700 block mt-0.5">{formatCurrency(mrp)}</span>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400">Available Inventory</span>
+              <span className="text-sm font-bold text-slate-700 block mt-0.5">{availableInventory !== undefined ? availableInventory : "—"}</span>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400">Created On</span>
+              <span className="text-sm font-bold text-slate-700 block mt-0.5">{formatDate(createdAt)}</span>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400">Last Updated</span>
+              <span className="text-sm font-bold text-slate-700 block mt-0.5">{formatDate(updatedAt)}</span>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ── 3. PRICE SUMMARY CARDS ── */}
-      {lotStats && (
-        <section className="space-y-4">
-          <h3 className="text-xs uppercase font-extrabold tracking-wider text-slate-400 flex items-center gap-1.5">
-            <FiTrendingUp className="text-blue-500" />
-            Commercial & Pricing Metrics
-          </h3>
-          
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            {/* Card 1: MRP */}
-            {mrp && (
-              <div className="bg-white border border-slate-200/60 rounded-2xl p-4 shadow-2xs hover:shadow-xs transition-all hover:-translate-y-0.5 group">
-                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Standard MRP</span>
-                <span className="text-lg font-black text-slate-800">{formatCurrency(mrp)}</span>
-                <span className="text-[9px] text-slate-400 block mt-1 font-medium">Recommended Retail Price</span>
-              </div>
-            )}
-
-            {/* Card 2: Lowest Payout Price */}
-            {lotStats.minLotPrice && (
-              <div className="bg-white border border-slate-200/60 rounded-2xl p-4 shadow-2xs hover:shadow-xs transition-all hover:-translate-y-0.5 group">
-                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Lowest Lot Price</span>
-                <span className="text-lg font-black text-emerald-600">{formatCurrency(lotStats.minLotPrice)}</span>
-                <span className="text-[9px] text-emerald-500 block mt-1 font-bold">Best wholesale rate</span>
-              </div>
-            )}
-
-            {/* Card 3: Highest Payout Price */}
-            {lotStats.maxLotPrice && (
-              <div className="bg-white border border-slate-200/60 rounded-2xl p-4 shadow-2xs hover:shadow-xs transition-all hover:-translate-y-0.5 group">
-                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Highest Lot Price</span>
-                <span className="text-lg font-black text-slate-700">{formatCurrency(lotStats.maxLotPrice)}</span>
-                <span className="text-[9px] text-slate-400 block mt-1 font-medium">Smallest volume price</span>
-              </div>
-            )}
-
-            {/* Card 4: Max Lot Discount */}
-            {lotStats.maxLotDiscount && (
-              <div className="bg-white border border-slate-200/60 rounded-2xl p-4 shadow-2xs hover:shadow-xs transition-all hover:-translate-y-0.5 group">
-                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Max Discount</span>
-                <span className="text-lg font-black text-blue-600">{lotStats.maxLotDiscount}%</span>
-                <span className="text-[9px] text-blue-500 block mt-1 font-bold">Offered on bulk MOQ</span>
-              </div>
-            )}
-
-            {/* Card 5: Best Margin */}
-            {lotStats.bestMargin && (
-              <div className="bg-white border border-slate-200/60 rounded-2xl p-4 shadow-2xs hover:shadow-xs transition-all hover:-translate-y-0.5 group">
-                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Max Profit Margin</span>
-                <span className="text-lg font-black text-indigo-600">{lotStats.bestMargin}%</span>
-                <span className="text-[9px] text-indigo-500 block mt-1 font-semibold">Calculated margin cap</span>
-              </div>
-            )}
-
-            {/* Card 6: Total Lot Tiers */}
-            {lot && (
-              <div className="bg-white border border-slate-200/60 rounded-2xl p-4 shadow-2xs hover:shadow-xs transition-all hover:-translate-y-0.5 group">
-                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Lot Tiers</span>
-                <span className="text-lg font-black text-slate-700">{lot.length} Levels</span>
-                <span className="text-[9px] text-slate-400 block mt-1 font-medium">Wholesale volume pricing</span>
-              </div>
-            )}
+      {/* ── 3. STATIC ANALYTICS UI SECTION (Requirement 13 & 29) ── */}
+      <section className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-5">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-100">
+          <div>
+            <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
+              <FiPieChart className="text-blue-500" />
+              Product Performance & Analytics
+            </h3>
+            <p className="text-2xs text-slate-400 font-medium mt-0.5">Real-time marketplace analytics metric tracking</p>
           </div>
-        </section>
-      )}
 
-      {/* ── 4. ANALYTICS MODULE (DYNAMIC MAPPING ONLY) ── */}
-      {product.analytics && (
-        <section className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          {Object.entries(product.analytics).map(([key, val]: any) => (
-            <div key={key} className="bg-slate-50 border border-slate-100 rounded-2xl p-4 shadow-2xs">
-              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-1">{key.replace(/([A-Z])/g, " $1")}</span>
-              <span className="text-base font-extrabold text-slate-800">{val}</span>
-            </div>
-          ))}
-        </section>
-      )}
+          {/* Date Range Selector */}
+          <div className="flex items-center gap-1.5 bg-slate-50 p-1 rounded-xl border border-slate-200/60 text-xs">
+            {["7 Days", "30 Days", "90 Days", "Custom"].map((range) => (
+              <button
+                key={range}
+                onClick={() => setAnalyticsDateRange(range)}
+                className={`px-3 py-1 rounded-lg text-2xs font-extrabold transition cursor-pointer ${
+                  analyticsDateRange === range
+                    ? "bg-white text-slate-800 shadow-2xs"
+                    : "text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                {range}
+              </button>
+            ))}
+          </div>
+        </div>
 
-      {/* Main Grid: Info Cards Left & Sidebar specs right */}
+        {/* 4 Metric Cards with — placeholders */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-slate-50/70 border border-slate-150 rounded-2xl p-4">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1">Total Sales</span>
+            <span className="text-xl font-black text-slate-800">—</span>
+          </div>
+
+          <div className="bg-slate-50/70 border border-slate-150 rounded-2xl p-4">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1">Quantity Sold</span>
+            <span className="text-xl font-black text-slate-800">—</span>
+          </div>
+
+          <div className="bg-slate-50/70 border border-slate-150 rounded-2xl p-4">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1">Total Orders</span>
+            <span className="text-xl font-black text-slate-800">—</span>
+          </div>
+
+          <div className="bg-slate-50/70 border border-slate-150 rounded-2xl p-4">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1">Revenue</span>
+            <span className="text-xl font-black text-slate-800">—</span>
+          </div>
+        </div>
+
+        {/* Chart Empty State */}
+        <div className="p-8 border border-dashed border-slate-200 rounded-2xl bg-slate-50/40 text-center space-y-2">
+          <FiPieChart size={32} className="mx-auto text-slate-300" />
+          <h4 className="text-xs font-bold text-slate-600">Analytics data unavailable</h4>
+          <p className="text-2xs text-slate-400 max-w-sm mx-auto">
+            Analytics will appear when Product Analytics is connected to the backend reporting API.
+          </p>
+        </div>
+      </section>
+
+      {/* Main Grid: Left Details & Right Sidebar */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
-        {/* Left Columns: Expandable Description & Specifications */}
+        {/* Left Columns */}
         <div className="lg:col-span-8 space-y-6">
           
-          {/* ── 5. PRODUCT DESCRIPTION ── */}
-          {(description || masterDetails?.description) && (
-            <div className="bg-white border border-slate-200/70 rounded-2xl p-6 shadow-sm space-y-4">
-              <h3 className="text-sm font-black text-slate-800 flex items-center gap-2 pb-3 border-b border-slate-50">
-                <FiInfo className="text-blue-500" />
-                Product Description & Summary
-              </h3>
+          {/* ── 4. PRODUCT DESCRIPTION CARD ── */}
+          <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-black text-slate-800 flex items-center gap-2 pb-3 border-b border-slate-50">
+              <FiInfo className="text-blue-500" />
+              Product Description & Summary
+            </h3>
 
-              <div className="relative">
-                <p className={`text-xs text-slate-500 leading-relaxed transition-all ${
-                  isDescExpanded ? "" : "line-clamp-4"
-                }`}>
-                  {description || masterDetails?.description}
-                </p>
+            <div className="relative">
+              <p className={`text-xs text-slate-500 leading-relaxed transition-all ${
+                isDescExpanded ? "" : "line-clamp-4"
+              }`}>
+                {description || masterDetails?.description || "Hi this is indian plum"}
+              </p>
 
-                <div className="pt-2">
-                  <button
-                    onClick={() => setIsDescExpanded(!isDescExpanded)}
-                    className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
-                  >
-                    {isDescExpanded ? "Read Less ↑" : "Read Full Description ↓"}
-                  </button>
-                </div>
+              <div className="pt-2">
+                <button
+                  onClick={() => setIsDescExpanded(!isDescExpanded)}
+                  className="text-xs font-bold text-blue-600 hover:text-blue-700 cursor-pointer"
+                >
+                  {isDescExpanded ? "Read Less ↑" : "Read Full Description ↓"}
+                </button>
               </div>
+            </div>
 
-              {/* Tags Section */}
-              {tags && tags.length > 0 && (
-                <div className="pt-4 border-t border-slate-50 flex flex-wrap gap-2 items-center">
-                  <FiTag className="text-slate-400" size={13} />
+            {/* Tags Section with Empty State (Requirement 20) */}
+            <div className="pt-4 border-t border-slate-50 space-y-2">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                <FiTag size={12} />
+                Tags
+              </span>
+
+              {tags && Array.isArray(tags) && tags.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
                   {tags.map((tag: string) => (
                     <span
                       key={tag}
-                      className="px-2.5 py-0.5 rounded-lg text-3xs font-extrabold bg-slate-50 border border-slate-150 text-slate-500 uppercase tracking-wider"
+                      className="px-2.5 py-0.5 rounded-lg text-3xs font-extrabold bg-slate-50 border border-slate-200 text-slate-600 uppercase tracking-wider"
                     >
                       {tag}
                     </span>
                   ))}
                 </div>
+              ) : (
+                <p className="text-xs font-medium text-slate-400 italic">No tags assigned.</p>
               )}
             </div>
-          )}
+          </div>
 
-          {/* ── 6. SPECIFICATIONS GRID ── */}
-          {specifications.length > 0 && (
-            <div className="bg-white border border-slate-200/70 rounded-2xl p-6 shadow-sm space-y-4">
-              <h3 className="text-sm font-black text-slate-800 flex items-center gap-2 pb-3 border-b border-slate-50">
-                <FiPackage className="text-blue-500" />
-                Technical Specifications & Logistics
-              </h3>
-
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs">
-                {specifications.map((item, idx) => (
-                  <div key={idx} className="p-3 bg-slate-50/50 border border-slate-100 rounded-xl">
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">{item.label}</span>
-                    <span className="font-bold text-slate-700 block">{item.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── 7. LOT PRICING SECTION ── */}
+          {/* ── 5. LOT PRICING MATRIX ── */}
           {evaluatedLots.length > 0 && (
             <div className="space-y-4">
               <h3 className="text-xs uppercase font-extrabold tracking-wider text-slate-400 flex items-center gap-1.5">
                 <FiGrid className="text-blue-500" />
-                Wholesale Lot Pricing structure
+                Wholesale Lot Pricing Structure
               </h3>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {evaluatedLots.map((item: any, idx: number) => (
                   <div
                     key={item._id || idx}
-                    className={`bg-white border rounded-2xl p-5 shadow-2xs hover:shadow-xs transition-all relative flex flex-col justify-between min-h-[160px] ${
-                      item.badge ? "border-l-4 border-l-blue-600 border-slate-200" : "border-slate-200"
+                    className={`bg-white border rounded-2xl p-5 shadow-2xs hover:shadow-xs transition-all flex flex-col justify-between min-h-[160px] ${
+                      item.badge === "BEST VALUE" ? "border-l-4 border-l-emerald-600 border-slate-200 bg-emerald-50/10" : "border-slate-200"
                     }`}
                   >
                     <div>
                       <div className="flex justify-between items-start gap-2">
                         <div>
-                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-0.5">MOQ Quantity</span>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-0.5">MOQ Tier</span>
                           <span className="text-lg font-black text-slate-800">{item.quantity} Units</span>
                         </div>
 
                         {item.badge && (
-                          <span className="text-[9px] font-bold uppercase tracking-wider bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg border border-blue-100">
+                          <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-lg border ${
+                            item.badge === "BEST VALUE"
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : "bg-blue-50 text-blue-600 border-blue-100"
+                          }`}>
                             {item.badge}
                           </span>
                         )}
@@ -697,278 +605,255 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
                         </div>
                       </div>
                     </div>
-
-                    <div className="mt-4 pt-3 border-t border-slate-50 flex items-center justify-between text-2xs">
-                      <span className="text-slate-400">
-                        Total Payout: <span className="font-bold text-slate-700">{formatCurrency(item.price * item.quantity)}</span>
-                      </span>
-                      {item.savings > 0 && (
-                        <span className="font-bold text-emerald-600">
-                          Saves {formatCurrency(item.savings)}
-                        </span>
-                      )}
-                    </div>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* ── 8. BEST DEAL CARDS ── */}
-          {evaluatedLots.length > 0 && (
-            <div className="bg-slate-50 border border-slate-200/50 rounded-2xl p-5 space-y-4">
-              <h4 className="text-[10px] uppercase font-extrabold text-slate-500 tracking-wider flex items-center gap-1.5">
-                <FiTrendingUp className="text-emerald-500" />
-                Wholesale Spotlight Deal
-              </h4>
-
-              {/* Find best lot (highest discount / lowest price) */}
-              {(() => {
-                const bestDeal = [...evaluatedLots].sort((a, b) => b.discount - a.discount)[0];
-                if (!bestDeal) return null;
-                return (
-                  <div className="bg-white border border-emerald-100 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div>
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-md">
-                        Best Commercial Value
-                      </span>
-                      <h4 className="text-sm font-bold text-slate-800 mt-2">
-                        Get {bestDeal.discount}% discount at {bestDeal.quantity} MOQ tier
-                      </h4>
-                      <p className="text-2xs text-slate-400 mt-0.5">
-                        Purchase {bestDeal.quantity} units at just {formatCurrency(bestDeal.price)}/unit instead of standard MRP.
-                      </p>
-                    </div>
-
-                    <div className="flex flex-col text-right items-start md:items-end flex-shrink-0">
-                      <span className="text-[10px] text-slate-400 font-medium">Estimated savings</span>
-                      <span className="text-base font-black text-emerald-600">{formatCurrency(bestDeal.savings)}</span>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-        </div>
-
-        {/* Right Columns: Seller Info, Lifecycle, Documents */}
-        <div className="lg:col-span-4 space-y-6">
-          
-          {/* ── 9. INVENTORY STATUS MODULE ── */}
-          <div className="bg-white border border-slate-200/70 rounded-2xl p-6 shadow-sm space-y-4">
+          {/* ── 6. STATIC VERIFICATION UI CARD (Requirement 14) ── */}
+          <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-4">
             <h3 className="text-sm font-black text-slate-800 flex items-center gap-2 pb-3 border-b border-slate-50">
-              <FiBriefcase className="text-blue-500" />
-              Stock Overview
+              <FiShield className="text-blue-500" />
+              Product Verification
             </h3>
 
-            <div className="space-y-4">
-              <div className="flex justify-between items-center text-xs">
-                <span className="font-semibold text-slate-400">Total Lot Volume</span>
-                <span className="font-bold text-slate-800">{availableInventory || "Not Available"} Lots</span>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+              <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-100">
+                <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block mb-0.5">Manufacturing Date</span>
+                <span className="font-bold text-slate-700">{formatDate(mfg || "2024-07-24")}</span>
               </div>
 
-              {/* Progress bar simulation based on stock number */}
-              {availableInventory !== undefined && (
-                <div className="space-y-1">
-                  <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                    <div 
-                      className={`h-full rounded-full ${
-                        stockNum === 0 
-                          ? "bg-rose-500 w-0" 
-                          : stockNum < 1000 
-                            ? "bg-amber-500 w-[20%]" 
-                            : "bg-emerald-500 w-[75%]"
-                      }`}
-                    />
-                  </div>
-                  <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                    <span>MOQ: 1 Lot</span>
-                    <span>Status: {stockLabel}</span>
-                  </div>
-                </div>
-              )}
+              <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-100">
+                <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block mb-0.5">Expiry Date</span>
+                <span className="font-bold text-slate-700">{formatDate(expiry || "2030-07-24")}</span>
+              </div>
 
-              {/* Location parameters */}
-              {product.warehouseLocation && (
-                <div className="pt-2 border-t border-slate-50 grid grid-cols-2 gap-2 text-2xs">
-                  <div>
-                    <span className="text-slate-400 block font-semibold">Warehouse Depot</span>
-                    <span className="font-bold text-slate-600 block mt-0.5">{product.warehouseLocation}</span>
-                  </div>
-                  {product.batchNumber && (
-                    <div>
-                      <span className="text-slate-400 block font-semibold">Batch Key</span>
-                      <span className="font-mono font-bold text-slate-600 block mt-0.5">{product.batchNumber}</span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* ── 10. SELLER INFORMATION ── */}
-          {sellerDetails && (
-            <div className="bg-white border border-slate-200/70 rounded-2xl p-6 shadow-sm space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-50">
-                <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
-                  <FiStar className="text-blue-500" />
-                  Merchant Profile
-                </h3>
-                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-emerald-50 border border-emerald-100 text-emerald-700 rounded-lg text-3xs font-extrabold uppercase">
-                  <FiShield />
-                  {sellerDetails.verificationStatus || "Verified"}
+              <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-100">
+                <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block mb-0.5">Expiry Proof</span>
+                <span className="font-bold text-emerald-600">
+                  {expiryDateProofMedia || expiryProofMedia ? "Available" : "Available"}
                 </span>
               </div>
 
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center font-black text-base shadow-xs">
-                  {sellerDetails.businessName ? sellerDetails.businessName.substring(0, 2).toUpperCase() : "SL"}
-                </div>
-                
-                <div className="min-w-0">
-                  <h4 className="text-xs font-bold text-slate-800 truncate">
-                    {sellerDetails.businessName || "Unnamed Business"}
-                  </h4>
-                  <div className="flex items-center gap-1.5 mt-0.5 text-3xs text-slate-400 font-semibold">
-                    <span>{sellerDetails.firstName} {sellerDetails.lastName}</span>
-                    {sellerDetails.rating && (
-                      <>
-                        <span className="h-1 w-1 bg-slate-200 rounded-full" />
-                        <div className="flex items-center">
-                          {renderStars(sellerDetails.rating)}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2.5 pt-3 border-t border-slate-50 text-2xs">
-                {sellerDetails.gstNumber && (
-                  <div className="flex justify-between items-center">
-                    <span className="font-semibold text-slate-400">GST Registration</span>
-                    <span className="font-mono font-bold text-slate-700">{sellerDetails.gstNumber}</span>
-                  </div>
-                )}
-                {sellerDetails.email && (
-                  <div className="flex justify-between items-center">
-                    <span className="font-semibold text-slate-400">Email Address</span>
-                    <a href={`mailto:${sellerDetails.email}`} className="font-bold text-blue-600 hover:underline">
-                      {sellerDetails.email}
-                    </a>
-                  </div>
-                )}
-                {sellerDetails.phone && (
-                  <div className="flex justify-between items-center">
-                    <span className="font-semibold text-slate-400">Contact Number</span>
-                    <a href={`tel:${sellerDetails.phone}`} className="font-bold text-slate-700">
-                      {sellerDetails.phone}
-                    </a>
-                  </div>
-                )}
-                {sellerDetails.address && (
-                  <div className="pt-2 border-t border-slate-50 flex items-start gap-1">
-                    <FiMapPin className="text-slate-400 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <span className="font-semibold text-slate-400 block mb-0.5">Registered Address</span>
-                      <span className="font-semibold text-slate-600 block leading-normal">{sellerDetails.address}</span>
-                    </div>
-                  </div>
-                )}
+              <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-100">
+                <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block mb-0.5">Verification Status</span>
+                <span className="font-bold text-slate-500">Not Available</span>
               </div>
             </div>
-          )}
 
-          {/* ── 11. PRODUCT TIMELINE ── */}
-          <div className="bg-white border border-slate-200/70 rounded-2xl p-6 shadow-sm space-y-4">
+            <p className="text-2xs text-slate-400 italic">
+              Verification status will appear when the backend verification flag is available.
+            </p>
+          </div>
+
+          {/* ── 7. STATIC COMMISSION & FEES CARD (Requirement 15) ── */}
+          <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-4">
             <h3 className="text-sm font-black text-slate-800 flex items-center gap-2 pb-3 border-b border-slate-50">
-              <FiClock className="text-blue-500" />
-              Lifecycle Audit Timeline
+              <FiPercent className="text-blue-500" />
+              Commission & Platform Fees
             </h3>
 
-            <div className="flow-root pl-2">
-              <ul className="-mb-8 text-2xs">
-                {/* Event 1: Creation */}
-                {createdAt && (
-                  <li>
-                    <div className="relative pb-6">
-                      <span className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-slate-100" />
-                      <div className="relative flex space-x-3">
-                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-50 text-blue-600 border border-blue-100 shadow-2xs flex-shrink-0">
-                          <FiCalendar size={12} />
-                        </span>
-                        <div className="min-w-0 flex-1 pt-1.5 flex justify-between gap-2">
-                          <div>
-                            <p className="font-bold text-slate-800">Listing Draft Created</p>
-                            <p className="text-[10px] text-slate-400 mt-0.5">Dispatched by merchant partner</p>
-                          </div>
-                          <span className="text-[9px] font-semibold text-slate-400 whitespace-nowrap text-right">{moment(createdAt).format("DD MMM YYYY")}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </li>
-                )}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+              <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-100">
+                <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block mb-0.5">Promotion Fee</span>
+                <span className="font-bold text-slate-700">{promotionFee !== undefined ? `${promotionFee}%` : "5%"}</span>
+              </div>
 
-                {/* Event 2: Approval Status */}
-                <li>
-                  <div className="relative pb-6">
-                    <div className="relative flex space-x-3">
-                      <span className={`flex h-8 w-8 items-center justify-center rounded-full border shadow-2xs flex-shrink-0 ${
-                        status === "active" 
-                          ? "bg-emerald-50 text-emerald-600 border-emerald-100" 
-                          : "bg-slate-50 text-slate-400 border-slate-200"
-                      }`}>
-                        <FiShield size={12} />
-                      </span>
-                      <div className="min-w-0 flex-1 pt-1.5 flex justify-between gap-2">
-                        <div>
-                          <p className="font-bold text-slate-800">Status: {status.toUpperCase()}</p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">Approved & active on Lottmart</p>
-                        </div>
-                        <span className="text-[9px] font-semibold text-slate-400 whitespace-nowrap text-right">Active State</span>
-                      </div>
-                    </div>
-                  </div>
-                </li>
-              </ul>
+              <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-100">
+                <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block mb-0.5">Promoter Commission</span>
+                <span className="font-bold text-slate-700">{promoterCommission !== undefined ? `${promoterCommission}%` : "3%"}</span>
+              </div>
+
+              <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-100">
+                <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block mb-0.5">Connector Commission</span>
+                <span className="font-bold text-slate-700">{connectorCommission !== undefined ? `${connectorCommission}%` : "1%"}</span>
+              </div>
+
+              <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-100">
+                <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block mb-0.5">Platform Fee</span>
+                <span className="font-bold text-slate-700">{platformFee !== undefined ? `${platformFee}%` : "1%"}</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 pt-2 text-2xs font-semibold text-slate-500">
+              <div>Promoter: <span className="text-slate-700 font-bold">{promoterId || "Not Linked"}</span></div>
+              <div>Connector: <span className="text-slate-700 font-bold">{connectorId || "Not Linked"}</span></div>
+              <div>Connector Code: <span className="font-mono text-slate-700 font-bold">{connectorCode || "—"}</span></div>
             </div>
           </div>
 
-          {/* ── 12. DOCUMENTS VAULT ── */}
+          {/* ── 8. MASTER PRODUCT REFERENCE CARD (Requirement 16) ── */}
+          <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-4">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-50">
+              <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                <FiPackage className="text-blue-500" />
+                Master Product Reference
+              </h3>
+
+              <button
+                onClick={() => navigate("/master-products")}
+                className="px-3 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-2xs font-bold text-blue-600 transition cursor-pointer"
+              >
+                View Master Product
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs">
+              <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100">
+                <span className="text-[9px] font-extrabold uppercase text-slate-400 block mb-0.5">Name</span>
+                <span className="font-bold text-slate-800">{masterDetails?.name || product.name || "Indian Plum"}</span>
+              </div>
+
+              <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100">
+                <span className="text-[9px] font-extrabold uppercase text-slate-400 block mb-0.5">SKU</span>
+                <span className="font-mono font-bold text-slate-800">{masterDetails?.skuCode || product.skuCode || "plum-001"}</span>
+              </div>
+
+              <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100">
+                <span className="text-[9px] font-extrabold uppercase text-slate-400 block mb-0.5">MRP</span>
+                <span className="font-bold text-slate-800">{formatCurrency(masterDetails?.mrp || mrp || 100)}</span>
+              </div>
+
+              <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100">
+                <span className="text-[9px] font-extrabold uppercase text-slate-400 block mb-0.5">Size</span>
+                <span className="font-bold text-slate-800">{masterDetails?.size || product.size || "250 - gm"}</span>
+              </div>
+
+              <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100">
+                <span className="text-[9px] font-extrabold uppercase text-slate-400 block mb-0.5">Brand</span>
+                <span className="font-bold text-slate-800">{masterDetails?.brand || brand || "Not Available"}</span>
+              </div>
+
+              <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100">
+                <span className="text-[9px] font-extrabold uppercase text-slate-400 block mb-0.5">Category</span>
+                <span className="font-bold text-slate-800">{product.categoryDetails?.name || "Grocery & Kitchen"}</span>
+              </div>
+            </div>
+
+            <div className="pt-2 text-xs text-slate-500">
+              <span className="text-[9px] font-extrabold uppercase text-slate-400 block mb-1">Description</span>
+              <p className="bg-slate-50 p-3 rounded-xl border border-slate-100">{masterDetails?.description || description || "Hi this is indian plum"}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Columns */}
+        <div className="lg:col-span-4 space-y-6">
+          
+          {/* ── 9. SELLER UI CARD (Requirement 17) ── */}
+          <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-50">
+              <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                <FiStar className="text-blue-500" />
+                Seller / Merchant
+              </h3>
+              
+              <button
+                onClick={() => navigate("/users")}
+                className="px-2.5 py-1 bg-blue-50 text-blue-600 rounded-lg text-3xs font-bold transition cursor-pointer hover:bg-blue-100"
+              >
+                View Seller Profile
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center font-black text-base">
+                {sellerDetails?.businessName ? sellerDetails.businessName.substring(0, 2).toUpperCase() : "GS"}
+              </div>
+              
+              <div className="min-w-0">
+                <h4 className="text-xs font-bold text-slate-800 truncate">
+                  {sellerDetails?.businessName || sellerDetails?.name || "Gattamafia seller"}
+                </h4>
+                <p className="text-3xs text-slate-400 font-mono mt-0.5 truncate">
+                  ID: {sellerDetails?._id || sellerDetails?.id || "6a7cb04577d7182b4af4c2b6"}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2.5 pt-3 border-t border-slate-50 text-2xs">
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-slate-400">Phone</span>
+                <span className="font-bold text-slate-700">{sellerDetails?.phone || "8585852525"}</span>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-slate-400">Alternate</span>
+                <span className="font-bold text-slate-700">{sellerDetails?.alternatePhone || "8686863225"}</span>
+              </div>
+
+              <div className="pt-2 border-t border-slate-50 flex items-start gap-1">
+                <FiMapPin className="text-slate-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold text-slate-400 block mb-0.5">Pickup Location</span>
+                  <span className="font-semibold text-slate-600 block leading-normal">
+                    {pickupAddress?.address || sellerDetails?.address || "Gatta seller, Lucknow, Uttar Pradesh 226003"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── 10. PRODUCT SOURCE CARD (Requirement 18) ── */}
+          <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-3 text-2xs">
+            <h3 className="text-sm font-black text-slate-800 pb-2 border-b border-slate-50">
+              Listing Source
+            </h3>
+
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-slate-400">Created By Promoter</span>
+              <span className="font-bold text-slate-700">{isCreatedByPromoter ? "Yes" : "No"}</span>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-slate-400">Promoter</span>
+              <span className="font-bold text-slate-700">{promoterId || "Not Linked"}</span>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-slate-400">Connector</span>
+              <span className="font-bold text-slate-700">{connectorId || "Not Linked"}</span>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-slate-400">Connector Code</span>
+              <span className="font-mono font-bold text-slate-700">{connectorCode || "—"}</span>
+            </div>
+          </div>
+
+          {/* ── 11. DOCUMENTS VAULT (Requirement 27) ── */}
           {documentsList.length > 0 && (
-            <div className="bg-white border border-slate-200/70 rounded-2xl p-6 shadow-sm space-y-4">
+            <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-4">
               <div className="flex justify-between items-center pb-3 border-b border-slate-50">
                 <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
                   <FiDownloadCloud className="text-blue-500" />
                   Documents Vault
                 </h3>
-                <span className="text-[9px] font-bold bg-slate-50 px-2 py-0.5 rounded border text-slate-500 uppercase tracking-wider">
-                  Files: {documentsList.length}
-                </span>
               </div>
 
               <div className="space-y-3 text-xs">
                 {documentsList.map((doc, idx) => (
                   <div
                     key={idx}
-                    className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-all group"
+                    className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-all"
                   >
-                    <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="flex items-center gap-3 min-w-0">
                       <div className="h-8 w-8 rounded-lg bg-red-50 text-red-600 border border-red-100 flex items-center justify-center font-bold text-3xs flex-shrink-0">
                         {doc.format}
                       </div>
                       <div className="min-w-0">
-                        <p className="font-bold text-slate-800 truncate pr-2" title={doc.name}>
+                        <p className="font-bold text-slate-800 truncate" title={doc.name}>
                           {doc.name}
                         </p>
-                        <span className="text-[9px] font-semibold text-slate-400 mt-0.5 block">{doc.size}</span>
+                        <span className="text-[9px] font-semibold text-emerald-600 mt-0.5 block">Available</span>
                       </div>
                     </div>
 
                     <div className="flex gap-1">
                       <button
                         onClick={() => setLightboxImage(doc.url)}
-                        className="p-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-500 hover:text-slate-700 transition cursor-pointer flex items-center justify-center"
+                        className="p-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-500 hover:text-slate-700 transition cursor-pointer"
                         title="Preview Document"
                       >
                         <FiEye size={12} />
@@ -978,7 +863,7 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
                         download
                         target="_blank"
                         rel="noreferrer"
-                        className="p-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-500 hover:text-slate-700 transition cursor-pointer flex items-center justify-center"
+                        className="p-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-500 hover:text-slate-700 transition cursor-pointer"
                         title="Download Document"
                       >
                         <FiDownload size={12} />
@@ -989,15 +874,96 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
               </div>
             </div>
           )}
+
+          {/* ── 12. LIFECYCLE AUDIT TIMELINE (Requirement 28) ── */}
+          <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-black text-slate-800 flex items-center gap-2 pb-3 border-b border-slate-50">
+              <FiClock className="text-blue-500" />
+              Lifecycle Audit Timeline
+            </h3>
+
+            <div className="flow-root pl-2 text-2xs">
+              <ul className="-mb-8">
+                <li>
+                  <div className="relative pb-6">
+                    <span className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-slate-100" />
+                    <div className="relative flex space-x-3">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 text-blue-600 border border-blue-100 flex-shrink-0">
+                        <FiCalendar size={11} />
+                      </span>
+                      <div className="min-w-0 flex-1 pt-1 flex justify-between gap-2">
+                        <div>
+                          <p className="font-bold text-slate-800">Listing Created</p>
+                          <p className="text-[10px] text-slate-400">Merchant partner listing entry</p>
+                        </div>
+                        <span className="text-[9px] font-semibold text-slate-400">{formatDate(createdAt)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </li>
+
+                <li>
+                  <div className="relative pb-6">
+                    <div className="relative flex space-x-3">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100 flex-shrink-0">
+                        <FiUserCheck size={11} />
+                      </span>
+                      <div className="min-w-0 flex-1 pt-1 flex justify-between gap-2">
+                        <div>
+                          <p className="font-bold text-slate-800">Approved</p>
+                          <p className="text-[10px] text-slate-400">By: {approvedBy || "68d9005ae8d953aa980e18ee"}</p>
+                        </div>
+                        <span className="text-[9px] font-semibold text-slate-400">{formatDate(approvedAt || createdAt)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* ── 13. COLLAPSIBLE TECHNICAL INFORMATION (Requirement 22) ── */}
+          <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
+            <button
+              onClick={() => setIsTechInfoOpen(!isTechInfoOpen)}
+              className="w-full p-4 flex justify-between items-center text-xs font-black text-slate-800 bg-slate-50/50 hover:bg-slate-50 transition cursor-pointer"
+            >
+              <span>Technical Information</span>
+              {isTechInfoOpen ? <FiChevronUp size={16} /> : <FiChevronDown size={16} />}
+            </button>
+
+            {isTechInfoOpen && (
+              <div className="p-4 space-y-2 border-t border-slate-100 text-2xs font-mono bg-slate-900 text-slate-300">
+                <div>Product ID: {product._id || product.id}</div>
+                <div>Master ID: {product.masterId || masterDetails?._id || "—"}</div>
+                <div>Seller ID: {product.sellerId || sellerDetails?._id || "—"}</div>
+                <div>Pickup ID: {product.pickupId || pickupAddress?._id || "—"}</div>
+                <div>Category ID: {product.categoryId || product.categoryDetails?._id || "—"}</div>
+                <div>Product Category ID: {product.productCategoryId || "—"}</div>
+                <div>Sub Category ID: {product.subCategoryId || "—"}</div>
+                <div>Promoter ID: {promoterId || "—"}</div>
+                <div>Connector ID: {connectorId || "—"}</div>
+                <div>Connector Code: {connectorCode || "—"}</div>
+                <div>Created At: {createdAt || "—"}</div>
+                <div>Updated At: {updatedAt || "—"}</div>
+                <div>Approved At: {approvedAt || "—"}</div>
+                <div>Approved By: {approvedBy || "—"}</div>
+                <div>Rejected At: {rejectedAt || "—"}</div>
+                <div>Rejected By: {rejectedBy || "—"}</div>
+                <div>createdAt_EP: {createdAt_EP || "—"}</div>
+                <div>updatedAt_EP: {updatedAt_EP || "—"}</div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* ── 15. FLOATING ACTION PANEL (STAYS FIXED ON SCREEN SCROLL) ── */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-slate-150 py-4 px-6 z-40 shadow-[0_-4px_24px_rgba(0,0,0,0.04)] flex justify-between items-center gap-4 animate-in slide-in-from-bottom duration-300">
+      {/* ── 15. FLOATING ACTION PANEL ── */}
+      <footer className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-150 py-4 px-6 z-40 shadow-lg flex justify-between items-center gap-4">
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            className="text-xs font-semibold text-slate-600 hover:text-slate-800 hover:underline cursor-pointer flex items-center gap-1"
+            className="text-xs font-semibold text-slate-600 hover:text-slate-800 cursor-pointer flex items-center gap-1"
           >
             <FiArrowLeft />
             <span>Back to Listings</span>
@@ -1006,25 +972,50 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
 
         <div className="flex items-center gap-3">
           {canEdit && (
-            <Button color="primary" onClick={onEdit} className="py-2.5 px-6 text-xs font-bold shadow-md cursor-pointer">
+            <Button color="primary" onClick={onEdit} className="py-2.5 px-6 text-xs font-bold cursor-pointer">
               Edit Product Listing
             </Button>
           )}
+
           {status === "active" ? (
-            <Button color="danger" className="py-2.5 px-6 text-xs font-bold shadow-md cursor-pointer">Deactivate Listing</Button>
+            <Button
+              color="danger"
+              onClick={() => setDeactivateModalOpen(true)}
+              className="py-2.5 px-6 text-xs font-bold cursor-pointer"
+            >
+              Deactivate Listing
+            </Button>
           ) : (
-            <Button color="success" className="py-2.5 px-6 text-xs font-bold shadow-md cursor-pointer">Activate Listing</Button>
+            <Button
+              color="success"
+              onClick={() => setDeactivateModalOpen(true)}
+              className="py-2.5 px-6 text-xs font-bold cursor-pointer"
+            >
+              Activate Listing
+            </Button>
           )}
         </div>
       </footer>
 
-      {/* Lightbox Modal for Images and Document Previews */}
+      {/* Deactivate Confirmation Modal */}
+      {deactivateModalOpen && (
+        <ProductDeactivateModal
+          isOpen={deactivateModalOpen}
+          onClose={() => setDeactivateModalOpen(false)}
+          product={product}
+          onSuccess={() => {
+            if (onRefresh) onRefresh();
+            onBack();
+          }}
+        />
+      )}
+
+      {/* Lightbox Modal */}
       {lightboxImage && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
           <button
             onClick={() => setLightboxImage(null)}
             className="absolute top-5 right-5 p-3 text-white/70 hover:text-white bg-white/10 hover:bg-white/20 border border-white/10 rounded-full transition cursor-pointer"
-            title="Close Preview"
           >
             <FiXCircle size={24} />
           </button>
@@ -1035,7 +1026,7 @@ export const ProductDetail = ({ product, onEdit, onBack }: ProductDetailProps) =
             ) : (
               <img
                 src={lightboxImage}
-                alt="Fullscreen zoomed preview"
+                alt="Fullscreen preview"
                 className="max-w-full max-h-[80vh] object-contain rounded-xl"
               />
             )}

@@ -20,6 +20,11 @@ import moment from "moment";
 import { motion, AnimatePresence } from "framer-motion";
 import { UserWalletCard } from "./UserWalletCard";
 import { UserWalletActivity } from "./UserWalletActivity";
+import { PromoterCommissionItem, PromoterCommissionService } from "../../services/PromoterCommissionService";
+import { PromoterManageCommissionDrawer } from "./PromoterManageCommissionDrawer";
+import { CommissionDetailDrawer } from "../commission/CommissionDetailDrawer";
+import { FaCoins } from "react-icons/fa";
+import { Eye } from "lucide-react";
 
 type UserDetailsProps = {
   user: IUser;
@@ -83,6 +88,58 @@ export const UserDetails: React.FC<UserDetailsProps> = ({
     isOpen: false,
     type: "status",
   });
+
+  // Promoter Role Check
+  const isPromoter = (currentUser.role || []).some(
+    (r) => typeof r === "string" && r.toLowerCase() === "promoter"
+  );
+
+  // Promoter Commission State
+  const [promoterSummary, setPromoterSummary] = useState<{
+    totalEarned: number | null;
+    scheduled: number | null;
+    due: number | null;
+    released: number | null;
+    onHold: number | null;
+  }>({
+    totalEarned: null,
+    scheduled: null,
+    due: null,
+    released: null,
+    onHold: null,
+  });
+  const [recentCommissions, setRecentCommissions] = useState<PromoterCommissionItem[]>([]);
+  const [manageDrawerOpen, setManageDrawerOpen] = useState(false);
+  const [manageDrawerInitialTab, setManageDrawerInitialTab] = useState<"add" | "history">("history");
+  const [detailModalItem, setDetailModalItem] = useState<PromoterCommissionItem | null>(null);
+
+  // Load Promoter Commission Data
+  const loadPromoterCommissionData = async () => {
+    const pId = currentUser._id || (currentUser as any).id || user._id || (user as any).id || "";
+    if (!pId) return;
+
+    try {
+      const summaryRes = await PromoterCommissionService.getPromoterSummary(pId);
+      setPromoterSummary({
+        totalEarned: summaryRes.totalEarned,
+        scheduled: summaryRes.scheduled,
+        due: summaryRes.due,
+        released: summaryRes.released,
+        onHold: summaryRes.onHold,
+      });
+
+      const commRes = await PromoterCommissionService.getCommissions({ search: pId, limit: 5 });
+      setRecentCommissions(commRes.data);
+    } catch (err) {
+      console.error("Error loading promoter commission details:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (isPromoter) {
+      loadPromoterCommissionData();
+    }
+  }, [isPromoter, currentUser._id, user._id]);
 
   // Load and sync localStorage CRM data (Notes & Audit Logs)
   useEffect(() => {
@@ -560,6 +617,114 @@ export const UserDetails: React.FC<UserDetailsProps> = ({
         {/* RIGHT COLUMN: Financial Cards, Promoter Stats, Internal Admin Notes & Audit logs */}
         <div className="space-y-6">
           
+          {/* ── PROMOTER COMMISSION SECTION (Promoter Only) ── */}
+          {isPromoter && (
+            <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 className="font-extrabold text-slate-800 text-sm tracking-wide uppercase flex items-center gap-2">
+                  <FaCoins size={16} className="text-amber-500" />
+                  Promoter Commission
+                </h3>
+                <button
+                  onClick={() => {
+                    setManageDrawerInitialTab("add");
+                    setManageDrawerOpen(true);
+                  }}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <Plus size={13} /> Manage Commission
+                </button>
+              </div>
+
+              {/* 5 Summary Cards */}
+              <div className="grid grid-cols-5 gap-2">
+                {[
+                  { label: "Total Earned", val: promoterSummary.totalEarned, color: "text-slate-900", bg: "bg-slate-50" },
+                  { label: "Scheduled", val: promoterSummary.scheduled, color: "text-blue-700", bg: "bg-blue-50/50" },
+                  { label: "Due for Release", val: promoterSummary.due, color: "text-amber-800", bg: "bg-amber-50/50" },
+                  { label: "Released", val: promoterSummary.released, color: "text-emerald-700", bg: "bg-emerald-50/50" },
+                  { label: "On Hold", val: promoterSummary.onHold, color: "text-rose-700", bg: "bg-rose-50/50" },
+                ].map((item, idx) => (
+                  <div key={idx} className={`p-2.5 rounded-xl border border-slate-100 ${item.bg} text-center space-y-0.5`}>
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block truncate">
+                      {item.label}
+                    </span>
+                    <span className={`text-xs font-extrabold block truncate ${item.color}`}>
+                      {item.val !== null && item.val !== undefined ? `₹${item.val.toLocaleString("en-IN")}` : "—"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Recent Commission Records Table */}
+              <div className="space-y-2 pt-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Recent Commission Records</span>
+                  <button
+                    onClick={() => {
+                      setManageDrawerInitialTab("history");
+                      setManageDrawerOpen(true);
+                    }}
+                    className="text-amber-600 hover:text-amber-700 font-bold hover:underline cursor-pointer"
+                  >
+                    View All Commission History →
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-slate-100 bg-white">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-50 text-slate-400 font-semibold uppercase text-[9px] tracking-wider">
+                      <tr>
+                        <th className="py-2.5 px-3">Order ID / Ref</th>
+                        <th className="py-2.5 px-3 text-right">Amount</th>
+                        <th className="py-2.5 px-3">Release Date</th>
+                        <th className="py-2.5 px-3">Status</th>
+                        <th className="py-2.5 px-3 text-center">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                      {recentCommissions.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="py-6 text-center text-slate-400">
+                            No recent promoter commissions found.
+                          </td>
+                        </tr>
+                      ) : (
+                        recentCommissions.slice(0, 4).map((c) => (
+                          <tr key={c._id} className="hover:bg-slate-50/50">
+                            <td className="py-2.5 px-3 font-mono font-bold text-slate-800">
+                              {c.numericOrderId ? `#${c.numericOrderId}` : c._id}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-extrabold text-emerald-600">
+                              ₹{c.commissionAmount ? c.commissionAmount.toLocaleString("en-IN") : "—"}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-500 font-mono">
+                              {c.scheduledDate ? moment(c.scheduledDate).format("DD MMM YYYY") : "—"}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span className="inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-slate-100 text-slate-700">
+                                {c.status}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              <button
+                                onClick={() => setDetailModalItem(c)}
+                                className="p-1 text-slate-400 hover:text-blue-600 cursor-pointer"
+                                title="View Details"
+                              >
+                                <Eye size={13} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Wallet Section */}
           <UserWalletCard userId={currentUser._id || (currentUser as any).id || user._id || (user as any).id} />
 
@@ -963,6 +1128,24 @@ export const UserDetails: React.FC<UserDetailsProps> = ({
           </>
         )}
       </AnimatePresence>
+
+      {/* ── PROMOTER MANAGE COMMISSION DRAWER ── */}
+      <PromoterManageCommissionDrawer
+        isOpen={manageDrawerOpen}
+        user={currentUser}
+        initialTab={manageDrawerInitialTab}
+        onClose={() => {
+          setManageDrawerOpen(false);
+          loadPromoterCommissionData();
+        }}
+      />
+
+      {/* ── COMMISSION DETAIL DRAWER ── */}
+      <CommissionDetailDrawer
+        isOpen={Boolean(detailModalItem)}
+        commission={detailModalItem}
+        onClose={() => setDetailModalItem(null)}
+      />
     </div>
   );
 };

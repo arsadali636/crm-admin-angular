@@ -24,6 +24,7 @@ import { WalletWithdrawals } from "./pages/WalletWithdrawals";
 import { WalletCommissionRules } from "./pages/WalletCommissionRules";
 import { WalletAnalytics } from "./pages/WalletAnalytics";
 import { WalletSettings } from "./pages/WalletSettings";
+import { PromoterCommissionRelease } from "./pages/PromoterCommissionRelease";
 
 const App = () => (
   <Router>
@@ -199,6 +200,22 @@ const App = () => (
           element={
             <ProtectRoute>
               <WalletSettings />
+            </ProtectRoute>
+          }
+        />
+        <Route
+          path="/wallet/promoter-commission"
+          element={
+            <ProtectRoute>
+              <PromoterCommissionRelease />
+            </ProtectRoute>
+          }
+        />
+        <Route
+          path="/promoter-commission"
+          element={
+            <ProtectRoute>
+              <PromoterCommissionRelease />
             </ProtectRoute>
           }
         />

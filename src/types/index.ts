@@ -194,47 +194,149 @@ export interface IUser {
   auditLogs?: { action: string; changedBy: string; oldValue: string; newValue: string; timestamp: string; ip: string }[];
 }
 
+export interface LotInfo {
+  _id?: string;
+  quantity?: number;
+  price?: number;
+  originalPrice?: number;
+  discount?: number;
+}
+
+export interface PickupAddress {
+  name?: string;
+  phone?: string;
+  alternatePhone?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  landmark?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  lat?: number;
+  lng?: number;
+}
+
+export interface AwbLog {
+  previousAwb?: string;
+  newAwb?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+  [key: string]: any;
+}
+
+export interface CommissionTransferLog {
+  transferredAt?: string;
+  transferredBy?: string;
+  transferMethod?: string;
+  amount?: number;
+  [key: string]: any;
+}
+
 export interface OrderItem {
   _id: string;
+  userId?: string;
+  orderId?: string;
+  productId?: string;
+  lotId?: string;
   quantity: number;
   totalAmount: number;
-  brand?: string;
-  promoterCommission?: number;
+  totalMrpWithQuantity?: number;
+  totalDiscountWithQuantity?: number;
+  totalDiscountPercentage?: number;
+  description?: string;
   media?: string[];
+  lot?: LotInfo;
+  tags?: string[];
+  mrp?: number;
+  sellerId?: string | any;
+  pickupId?: string;
+  pickupAddress?: PickupAddress;
+  connectorId?: string;
+  connectorCommission?: number;
+  connectorCommissionPercentage?: number;
+  promoterId?: string;
+  promoterCommission?: number;
+  promoterCommissionPercentage?: number;
+  promotionFeePercentage?: number;
+  promotionFeeAmount?: number;
+  masterId?: string;
+  brand?: string;
+  categoryId?: string;
+  status?: number | string;
+  awbNumber?: string | null;
+  awbNumberUpdatedAt?: string | null;
+  expectedDeliveryDate?: string | null;
+  deliveredAt?: string | null;
+  rtoAt?: string | null;
+  commissionTransferred?: boolean;
+  commissionTransferredLogs?: CommissionTransferLog[];
+  buyerTokenAmount?: number;
+  buyerTokenDebited?: boolean;
+  buyerTokenRefunded?: boolean;
+  buyerTokenSource?: string;
+  buyerTokenDebitedAt?: string | null;
+  buyerTokenRefundedAt?: string | null;
+  sellerTokenAmount?: number;
+  sellerTokenDebited?: boolean;
+  sellerTokenRefunded?: boolean;
+  sellerTokenSource?: string;
+  sellerTokenDebitedAt?: string | null;
+  sellerTokenRefundedAt?: string | null;
+  statusChangeLogs?: OrderStatusHistory[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Address {
   name?: string;
   phone?: string;
+  alternatePhone?: string;
   addressLine1?: string;
   addressLine2?: string;
+  landmark?: string;
   city?: string;
   state?: string;
   postalCode?: string;
-  isActive: boolean;
+  isPrimary?: boolean;
+  isActive?: boolean;
 }
 
 export interface Order {
   _id: string;
   numericOrderId: number;
+  userId?: string | any;
+  sellerId?: string | any;
+  gstNumber?: string;
+  addressId?: string;
   createdAt: string;
+  updatedAt?: string;
+  createdAt_EP?: number;
+  updatedAt_EP?: number;
   totalAmount: number;
   totalMrpWithQuantity: number;
   totalDiscountPercentage: number;
   totalDiscountWithQuantity?: number;
   paymentMethod: number;
   status: number;
+  awbNumber?: string | null;
+  awbNumberUpdatedAt?: string | null;
+  expectedDeliveryDate?: string | null;
+  deliveredAt?: string | null;
+  rtoAt?: string | null;
+  awbNumberUpdatedLogs?: AwbLog[];
+  shippingDetails?: any;
   order_items: OrderItem[];
   address?: Address;
   statusChangeLogs: OrderStatusHistory[];
 }
 
 export interface OrderStatusHistory {
-  changedBy: string;
-  oldStatus: number | string;
+  changedBy?: string;
+  oldStatus?: number | string;
   newStatus: number;
-  reason: string;
-  timestamp: string;
+  reason?: string;
+  timestamp?: string;
+  message?: string;
 }
 
 export interface Pagination {

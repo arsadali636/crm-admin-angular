@@ -39,12 +39,16 @@ interface SellerRequest {
 }
 
 interface IInitialFees {
+  promoterFee?: string;
   messengerFee: string;
   connectorFee: string;
   platformFee: string;
+  promoterCommission?: string;
+  connectorCommission?: string;
 }
 
 const initialFees: IInitialFees = {
+  promoterFee: "",
   messengerFee: "",
   connectorFee: "",
   platformFee: "3",
@@ -401,7 +405,7 @@ export const Approvals = () => {
 
   const submitPreviewApproval = async () => {
     setError("");
-    const m = parseInt(fees.messengerFee);
+    const m = parseInt(fees.promoterFee || fees.messengerFee);
     const c = parseInt(fees.connectorFee);
     const p = parseInt(fees.platformFee);
 
@@ -748,12 +752,12 @@ export const Approvals = () => {
 
             <div className="space-y-3.5">
               <div>
-                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Messenger Commission (%)</label>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Promoter Commission (%)</label>
                 <input
                   type="number"
                   placeholder="e.g. 5"
-                  value={fees.messengerFee}
-                  onChange={(e) => setFees({ ...fees, messengerFee: e.target.value })}
+                  value={fees.promoterFee || fees.messengerFee}
+                  onChange={(e) => setFees({ ...fees, promoterFee: e.target.value, messengerFee: e.target.value })}
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs focus:bg-white focus:border-slate-400 outline-none transition"
                 />
               </div>
