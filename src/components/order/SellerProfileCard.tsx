@@ -1,6 +1,6 @@
 import React from "react";
 import { OrderItem } from "../../types";
-import { FaStore, FaMapMarkerAlt, FaPhoneAlt, FaInfoCircle } from "react-icons/fa";
+import { FaStore, FaMapMarkerAlt, FaPhoneAlt } from "react-icons/fa";
 
 interface Props {
   sellerId?: string | any;
@@ -65,15 +65,21 @@ export const SellerProfileCard: React.FC<Props> = ({ sellerId, gstNumber, items 
               )}
 
               {seller.pickup && (
-                <div className="space-y-1 pt-1 border-t border-slate-100">
+                <div className="space-y-1 pt-1.5 border-t border-slate-100">
                   <p className="font-semibold text-slate-700 flex items-center gap-1 text-[11px]">
-                    <FaMapMarkerAlt size={10} className="text-orange-500" /> Pickup Location:
+                    <FaMapMarkerAlt size={10} className="text-orange-500" /> Pickup Warehouse:
                   </p>
                   <p className="text-[11px] text-slate-600 leading-snug">
-                    {seller.pickup.name ? `${seller.pickup.name}, ` : ""}
-                    {seller.pickup.addressLine1 ? `${seller.pickup.addressLine1}, ` : ""}
-                    {seller.pickup.city ? `${seller.pickup.city}, ` : ""}
-                    {seller.pickup.state ? seller.pickup.state : ""}
+                    {[
+                      seller.pickup.name,
+                      seller.pickup.addressLine1,
+                      seller.pickup.addressLine2,
+                      seller.pickup.city,
+                      seller.pickup.state,
+                    ]
+                      .filter(Boolean)
+                      .join(", ")}
+                    {seller.pickup.postalCode && ` - ${seller.pickup.postalCode}`}
                   </p>
                   {seller.pickup.phone && (
                     <p className="text-[11px] text-slate-500 font-semibold flex items-center gap-1 pt-0.5">
@@ -85,14 +91,6 @@ export const SellerProfileCard: React.FC<Props> = ({ sellerId, gstNumber, items 
             </div>
           </div>
         ))}
-
-        {/* Unavailable Information Notice */}
-        <div className="p-3 bg-amber-50/50 border border-amber-100 rounded-xl text-[11px] text-amber-800 flex items-start gap-2">
-          <FaInfoCircle size={14} className="text-amber-500 shrink-0 mt-0.5" />
-          <span>
-            Additional seller profile information (email, company status, ratings) is not available in current order API.
-          </span>
-        </div>
       </div>
     </div>
   );

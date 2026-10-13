@@ -34,6 +34,7 @@ import { FilterDrawer, FilterState, initialFilters } from "../components/users/F
 import { UserDetails } from "../components/users/UserDetails";
 import { PromoterManageCommissionDrawer } from "../components/users/PromoterManageCommissionDrawer";
 import { FaCoins } from "react-icons/fa";
+import { normalizeUserRoles } from "../services/UserService";
 
 /* ═══════════════════════════════════════════════════
    ROLE BADGES MAP
@@ -181,15 +182,8 @@ const Users = () => {
       const enriched: IUser[] = rawData.map((u: any) => {
         const id = u._id || u.id || Math.random().toString(36).substr(2, 9);
 
-        // Roles formatting
-        let rolesArray: string[] = [];
-        if (Array.isArray(u.role)) {
-          rolesArray = u.role;
-        } else if (typeof u.role === "string") {
-          rolesArray = [u.role];
-        } else {
-          rolesArray = ["user"];
-        }
+        // Roles formatting with intelligent detection of specialized roles
+        const rolesArray = normalizeUserRoles(u);
 
         // Map API fields directly
         const userObj: IUser = {
@@ -262,34 +256,67 @@ const Users = () => {
             : undefined,
         };
 
-        // Overlay with any localStorage admin updates
+        let finalUser: IUser = userObj;
+
+        // Overlay with any localStorage admin updates safely
         const storageKey = `crm_user_data_${userObj.email}`;
         const savedData = localStorage.getItem(storageKey);
         if (savedData) {
-          const parsed = JSON.parse(savedData);
-          if (parsed.userOverride) {
-            if (parsed.userOverride.seller?.pan?.startsWith("ABCDE")) {
-              delete parsed.userOverride.seller.pan;
+          try {
+            const parsed = JSON.parse(savedData);
+            if (parsed.userOverride) {
+              const override = { ...parsed.userOverride };
+              if (override.seller?.pan?.startsWith("ABCDE")) {
+                delete override.seller.pan;
+              }
+              if (override.seller?.panNumber?.startsWith("ABCDE")) {
+                delete override.seller.panNumber;
+              }
+
+              // Preserve specialized roles if override only has generic "user"
+              let mergedRole = userObj.role;
+              if (Array.isArray(override.role) && override.role.length > 0) {
+                const overrideRoles = override.role.map((r: any) => String(r).toLowerCase().trim());
+                const hasSpecialized = overrideRoles.some((r: string) => ["seller", "promoter", "connector", "admin"].includes(r));
+                if (hasSpecialized) {
+                  mergedRole = overrideRoles;
+                }
+              }
+
+              finalUser = {
+                ...userObj,
+                ...override,
+                role: mergedRole,
+                seller: userObj.seller
+                  ? { ...userObj.seller, ...override.seller }
+                  : (override.seller || userObj.seller),
+              };
             }
-            if (parsed.userOverride.seller?.panNumber?.startsWith("ABCDE")) {
-              delete parsed.userOverride.seller.panNumber;
-            }
-            return {
-              ...userObj,
-              ...parsed.userOverride,
-              seller: userObj.seller ? { ...userObj.seller, ...parsed.userOverride.seller } : parsed.userOverride.seller,
-            };
+          } catch (e) {
+            console.error("Error reading override for", userObj.email, e);
           }
         }
 
-        return userObj;
+        // Guarantee normalized roles on finalUser so seller/promoter is never lost
+        finalUser.role = normalizeUserRoles(finalUser);
+        return finalUser;
       });
 
-      // Include newly created users from localStorage
+      // Include newly created users from localStorage (deduplicated against API profiles)
       const customUsersJson = localStorage.getItem("crm_custom_users");
       const customUsers: IUser[] = customUsersJson ? JSON.parse(customUsersJson) : [];
       
-      setAllUsers([...customUsers, ...enriched]);
+      const existingEmails = new Set(enriched.map(u => (u.email || "").toLowerCase().trim()).filter(Boolean));
+      const existingIds = new Set(enriched.map(u => String(u._id || "")).filter(Boolean));
+      const uniqueCustomUsers = customUsers.filter(cu => 
+        (!cu.email || !existingEmails.has(cu.email.toLowerCase().trim())) &&
+        (!cu._id || !existingIds.has(String(cu._id)))
+      ).map(cu => ({
+        ...cu,
+        role: normalizeUserRoles(cu),
+      }));
+
+      setAllUsers([...uniqueCustomUsers, ...enriched]);
     } catch (err) {
       console.error("Failed to load profiles", err);
       showToast("Failed to refresh user list.", "error");
@@ -343,7 +370,10 @@ const Users = () => {
   // Compute stats for KPI cards
   const stats = useMemo(() => {
     const total = allUsers.length;
-    const buyers = allUsers.filter(u => u.role?.some(r => r.toLowerCase() === "user" || r.toLowerCase() === "buyer")).length;
+    const buyers = allUsers.filter(u => {
+      const roles = (u.role || []).map((r: string) => r.toLowerCase());
+      return roles.includes("buyer") || (roles.includes("user") && !roles.some(r => ["seller", "promoter", "connector", "admin"].includes(r)));
+    }).length;
     const sellers = allUsers.filter(u => u.role?.some(r => r.toLowerCase() === "seller")).length;
     const promoters = allUsers.filter(u => u.role?.some(r => r.toLowerCase() === "promoter")).length;
     const connectors = allUsers.filter(u => u.role?.some(r => r.toLowerCase() === "connector")).length;
@@ -613,7 +643,9 @@ const Users = () => {
         if (activeCardFilter === "total") {
           // No filter
         } else if (activeCardFilter === "buyers") {
-          if (!u.role?.some(r => r.toLowerCase() === "user" || r.toLowerCase() === "buyer")) return false;
+          const isGenericBuyer = u.role?.some(r => r.toLowerCase() === "user" || r.toLowerCase() === "buyer");
+          const hasSpecializedRole = u.role?.some(r => ["seller", "promoter", "connector", "admin"].includes(r.toLowerCase()));
+          if (!isGenericBuyer || hasSpecializedRole) return false;
         } else if (activeCardFilter === "sellers") {
           if (!u.role?.some(r => r.toLowerCase() === "seller")) return false;
         } else if (activeCardFilter === "promoters") {
@@ -1082,7 +1114,18 @@ const Users = () => {
                     {columnVisibility.phone && <td className="px-5 py-3 text-slate-500 font-mono">{u.phoneNumber}</td>}
                     {columnVisibility.role && (
                       <td className="px-5 py-3">
-                        <RoleBadge role={u.role?.[0] || "user"} />
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {(() => {
+                            const specialized = (u.role || []).filter(
+                              (r: string) => r.toLowerCase() !== "user"
+                            );
+                            const rolesToRender =
+                              specialized.length > 0 ? specialized : (u.role || ["user"]);
+                            return rolesToRender.map((r: string, rIdx: number) => (
+                              <RoleBadge key={rIdx} role={r} />
+                            ));
+                          })()}
+                        </div>
                       </td>
                     )}
                     {columnVisibility.status && (

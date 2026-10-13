@@ -167,10 +167,12 @@ export const TokenSecurityCard: React.FC<Props> = ({ items = [] }) => {
         </div>
       )}
 
-      {/* Transaction Reference Note */}
-      <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400 italic">
-        <span>Transaction reference:</span>
-        <span className="font-semibold text-slate-500">Not available in current API</span>
+      {/* Security Status Footnote */}
+      <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+        <span className="font-medium">Token Escrow Policy:</span>
+        <span className="font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/50">
+          {isAnyBuyerDebited ? "Token Held in Vault" : "Pending Token Debit"}
+        </span>
       </div>
     </div>
   );

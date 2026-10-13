@@ -26,6 +26,7 @@ import { PromoterManageCommissionDrawer } from "./PromoterManageCommissionDrawer
 import { CommissionDetailDrawer } from "../commission/CommissionDetailDrawer";
 import { UserTradeDealHistory } from "./UserTradeDealHistory";
 import { FaCoins } from "react-icons/fa";
+import { normalizeUserRoles } from "../../services/UserService";
 
 type UserDetailsProps = {
   user: IUser;
@@ -159,11 +160,23 @@ export const UserDetails: React.FC<UserDetailsProps> = ({
         if (override.seller?.panNumber?.startsWith("ABCDE")) {
           delete override.seller.panNumber;
         }
-        setCurrentUser({
+        // Preserve specialized roles if override only has generic "user"
+        let mergedRole = user.role;
+        if (Array.isArray(override.role) && override.role.length > 0) {
+          const overrideRoles = override.role.map((r: any) => String(r).toLowerCase().trim());
+          const hasSpecialized = overrideRoles.some((r: string) => ["seller", "promoter", "connector", "admin"].includes(r));
+          if (hasSpecialized) {
+            mergedRole = overrideRoles;
+          }
+        }
+        const updated = {
           ...user,
           ...override,
-          seller: user.seller ? { ...user.seller, ...override.seller } : override.seller,
-        });
+          role: mergedRole,
+          seller: user.seller ? { ...user.seller, ...override.seller } : (override.seller || user.seller),
+        };
+        updated.role = normalizeUserRoles(updated);
+        setCurrentUser(updated);
       }
     } else {
       // Seed initial mock logs
@@ -203,16 +216,20 @@ export const UserDetails: React.FC<UserDetailsProps> = ({
 
   const saveToStorage = (updatedUser: IUser, updatedNotes: Note[], updatedAudits: AuditLog[]) => {
     const storageKey = `crm_user_data_${user.email}`;
+    const normalizedUser = {
+      ...updatedUser,
+      role: normalizeUserRoles(updatedUser),
+    };
     localStorage.setItem(
       storageKey,
       JSON.stringify({
-        userOverride: updatedUser,
+        userOverride: normalizedUser,
         notes: updatedNotes,
         auditLogs: updatedAudits,
       })
     );
-    setCurrentUser(updatedUser);
-    onUpdateUser(updatedUser);
+    setCurrentUser(normalizedUser);
+    onUpdateUser(normalizedUser);
   };
 
   const addAuditLog = (action: string, oldValue: string, newValue: string) => {
@@ -363,9 +380,35 @@ export const UserDetails: React.FC<UserDetailsProps> = ({
               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border tracking-wide uppercase ${getStatusBadge(currentUser.status)}`}>
                 {currentUser.status}
               </span>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border border-blue-200 bg-blue-50 text-blue-700 uppercase tracking-wide">
-                {currentUser.role?.[0]}
-              </span>
+              {(() => {
+                const roleBadgeMap: Record<string, string> = {
+                  user: "bg-blue-50 text-blue-700 border-blue-200/80",
+                  buyer: "bg-blue-50 text-blue-700 border-blue-200/80",
+                  seller: "bg-violet-50 text-violet-700 border-violet-200/80",
+                  promoter: "bg-amber-50 text-amber-700 border-amber-200/80",
+                  connector: "bg-emerald-50 text-emerald-700 border-emerald-200/80",
+                  admin: "bg-rose-50 text-rose-700 border-rose-200/80",
+                };
+                const specialized = (currentUser.role || []).filter(
+                  (r: string) => r.toLowerCase() !== "user"
+                );
+                const rolesToRender =
+                  specialized.length > 0 ? specialized : (currentUser.role || ["user"]);
+                return rolesToRender.map((r: string, rIdx: number) => {
+                  const roleLower = r.toLowerCase();
+                  const colors =
+                    roleBadgeMap[roleLower] ||
+                    "bg-blue-50 text-blue-700 border-blue-200";
+                  return (
+                    <span
+                      key={rIdx}
+                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wide ${colors}`}
+                    >
+                      {r}
+                    </span>
+                  );
+                });
+              })()}
             </div>
             <p className="text-xs text-slate-400 mt-0.5 font-mono truncate">{currentUser.email}</p>
           </div>

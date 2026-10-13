@@ -14,18 +14,34 @@ export const AddressDetailsCard: React.FC<Props> = ({ buyerAddress, items = [] }
   const [copiedPickupIdx, setCopiedPickupIdx] = useState<number | null>(null);
 
   // Extract unique pickup addresses from items
-  const pickupAddresses = items
-    .map((item) => item.pickupAddress)
-    .filter((addr): addr is NonNullable<typeof addr> => !!addr && !!addr.addressLine1);
+  const pickupAddresses = React.useMemo(() => {
+    const valid = items
+      .map((item) => item.pickupAddress)
+      .filter((addr): addr is NonNullable<typeof addr> =>
+        Boolean(addr && (addr.name || addr.addressLine1 || addr.addressLine2 || addr.city || addr.state))
+      );
+
+    // Deduplicate by name + addressLine1 + city
+    const seen = new Set<string>();
+    return valid.filter((addr) => {
+      const key = `${addr.name || ""}_${addr.addressLine1 || ""}_${addr.city || ""}_${addr.phone || ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [items]);
 
   const handleCopyBuyer = async () => {
     if (!buyerAddress) return;
-    const text = `${buyerAddress.name || ""}\n${buyerAddress.addressLine1 || ""}${
-      buyerAddress.addressLine2 ? `, ${buyerAddress.addressLine2}` : ""
-    }\n${buyerAddress.city ? capitalize(buyerAddress.city) : ""}, ${
-      buyerAddress.state ? capitalize(buyerAddress.state) : ""
-    } - ${buyerAddress.postalCode || ""}\nPhone: ${buyerAddress.phone || ""}`;
-    const ok = await copyToClipboard(text);
+    const parts = [
+      buyerAddress.name,
+      buyerAddress.addressLine1,
+      buyerAddress.addressLine2,
+      [buyerAddress.city ? capitalize(buyerAddress.city) : "", buyerAddress.state ? capitalize(buyerAddress.state) : ""].filter(Boolean).join(", ") + (buyerAddress.postalCode ? ` - ${buyerAddress.postalCode}` : ""),
+      buyerAddress.landmark ? `Landmark: ${buyerAddress.landmark}` : "",
+      buyerAddress.phone ? `Phone: ${buyerAddress.phone}` : "",
+    ].filter(Boolean);
+    const ok = await copyToClipboard(parts.join("\n"));
     if (ok) {
       setCopiedBuyer(true);
       setTimeout(() => setCopiedBuyer(false), 2000);
@@ -33,12 +49,14 @@ export const AddressDetailsCard: React.FC<Props> = ({ buyerAddress, items = [] }
   };
 
   const handleCopyPickup = async (pickup: any, idx: number) => {
-    const text = `${pickup.name || ""}\n${pickup.addressLine1 || ""}${
-      pickup.addressLine2 ? `, ${pickup.addressLine2}` : ""
-    }\n${pickup.city || ""}, ${pickup.state || ""} - ${pickup.postalCode || ""}\nPhone: ${
-      pickup.phone || ""
-    }`;
-    const ok = await copyToClipboard(text);
+    const parts = [
+      pickup.name,
+      pickup.addressLine1,
+      pickup.addressLine2,
+      [pickup.city || "", pickup.state || ""].filter(Boolean).join(", ") + (pickup.postalCode ? ` - ${pickup.postalCode}` : ""),
+      pickup.phone ? `Phone: ${pickup.phone}` : "",
+    ].filter(Boolean);
+    const ok = await copyToClipboard(parts.join("\n"));
     if (ok) {
       setCopiedPickupIdx(idx);
       setTimeout(() => setCopiedPickupIdx(null), 2000);
@@ -150,10 +168,10 @@ export const AddressDetailsCard: React.FC<Props> = ({ buyerAddress, items = [] }
                     )}
                   </button>
                 </div>
-                <p>{pickup.addressLine1}</p>
+                {pickup.addressLine1 && <p>{pickup.addressLine1}</p>}
                 {pickup.addressLine2 && <p>{pickup.addressLine2}</p>}
                 <p className="font-semibold text-slate-700">
-                  {pickup.city}, {pickup.state}
+                  {[pickup.city, pickup.state].filter(Boolean).join(", ")}
                   {pickup.postalCode && ` - ${pickup.postalCode}`}
                 </p>
                 {pickup.phone && (

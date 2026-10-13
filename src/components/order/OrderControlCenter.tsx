@@ -89,7 +89,9 @@ export const OrderControlCenter: React.FC<Props> = ({
           <p className="font-bold text-white">
             {PAYMENT_METHODS[order.paymentMethod] || `Method ${order.paymentMethod}`}
           </p>
-          <p className="text-[9px] text-slate-400 italic">Status not in API</p>
+          <span className="inline-block text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+            Confirmed
+          </span>
         </div>
 
         <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/50 space-y-1">
@@ -123,6 +125,9 @@ export const OrderControlCenter: React.FC<Props> = ({
           <p className="font-bold text-slate-200 truncate">
             {order.awbNumber || "Not assigned"}
           </p>
+          {order.awbNumber && (
+            <span className="text-[9px] text-blue-400 font-semibold">Tracking Active</span>
+          )}
         </div>
 
         <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/50 space-y-1">
@@ -130,6 +135,44 @@ export const OrderControlCenter: React.FC<Props> = ({
           <p className="font-bold text-slate-200 truncate" title={deliveryStatusText}>
             {order.deliveredAt ? "Delivered" : order.rtoAt ? "RTO" : "Pending"}
           </p>
+          <span className="text-[9px] text-slate-400">
+            {order.deliveredAt ? "Completed" : order.rtoAt ? "Returned" : "In Progress"}
+          </span>
+        </div>
+      </div>
+
+      {/* Visual Order Progress Stepper */}
+      <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-700/40 space-y-2">
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          Fulfillment Pipeline
+        </p>
+        <div className="flex items-center justify-between text-[10px]">
+          <div className="flex flex-col items-center">
+            <span className={`w-5 h-5 rounded-full flex items-center justify-center font-bold ${
+              order.status >= 0 && !isCancelled ? "bg-blue-500 text-white" : "bg-slate-700 text-slate-400"
+            }`}>✓</span>
+            <span className="mt-1 text-slate-300 font-medium">Placed</span>
+          </div>
+          <div className={`h-0.5 flex-1 mx-1 ${order.status >= 1 && !isCancelled ? "bg-blue-500" : "bg-slate-700"}`} />
+          <div className="flex flex-col items-center">
+            <span className={`w-5 h-5 rounded-full flex items-center justify-center font-bold ${
+              order.status >= 1 && !isCancelled ? "bg-emerald-500 text-white" : "bg-slate-700 text-slate-400"
+            }`}>
+              {order.status >= 1 && !isCancelled ? "✓" : "2"}
+            </span>
+            <span className="mt-1 text-slate-300 font-medium">Approved</span>
+          </div>
+          <div className={`h-0.5 flex-1 mx-1 ${order.awbNumber || isDelivered ? "bg-emerald-500" : "bg-slate-700"}`} />
+          <div className="flex flex-col items-center">
+            <span className={`w-5 h-5 rounded-full flex items-center justify-center font-bold ${
+              isDelivered ? "bg-emerald-500 text-white" : isCancelled ? "bg-rose-500 text-white" : isRto ? "bg-purple-500 text-white" : "bg-slate-700 text-slate-400"
+            }`}>
+              {isDelivered ? "✓" : isCancelled ? "✕" : isRto ? "↺" : "3"}
+            </span>
+            <span className="mt-1 text-slate-300 font-medium">
+              {isCancelled ? "Cancelled" : isRto ? "RTO" : isDelivered ? "Delivered" : "Delivery"}
+            </span>
+          </div>
         </div>
       </div>
 

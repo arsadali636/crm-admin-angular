@@ -291,11 +291,15 @@ export const CommissionEarningsCard: React.FC<Props> = ({
       {/* Operational State Information & Release Control Toolbar */}
       <div className="p-4 rounded-xl border border-slate-200/80 bg-slate-50/50 space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-            Promoter Operational Action Control
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+            Promoter Release Control
           </span>
-          <span className="text-[10px] font-mono text-slate-400">
-            POST /api/order/mark-commission-as-transferred
+          <span className="text-[10px] font-semibold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
+            {overallStatus === "TRANSFERRED"
+              ? "Transferred"
+              : overallStatus === "ELIGIBLE"
+              ? "Ready for Payout"
+              : "Locked until Delivery"}
           </span>
         </div>
 

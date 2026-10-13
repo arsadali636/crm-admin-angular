@@ -223,10 +223,7 @@ export const ProductSalesSummaryCard: React.FC<Props> = ({
         <div className="py-8 text-center bg-slate-50/50 rounded-xl border border-slate-100 space-y-1">
           <Package size={24} className="mx-auto text-slate-300 mb-1" />
           <p className="text-xs font-semibold text-slate-500">
-            No product sales summary available for the selected period.
-          </p>
-          <p className="text-[11px] text-slate-400">
-            Endpoint: <code>GET /api/order/product-level-order-sale-summary</code>
+            No sales analytics recorded for this product in the selected period.
           </p>
         </div>
       ) : (

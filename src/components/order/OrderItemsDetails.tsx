@@ -112,8 +112,11 @@ export const OrderItemsDetails: React.FC<Props> = ({ items }) => {
                         {item.brand || "Lottmart Product"}
                       </h4>
                       {item.categoryId && (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600">
-                          Cat: {item.categoryId}
+                        <span
+                          className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 font-mono"
+                          title={`Category ID: ${item.categoryId}`}
+                        >
+                          Cat: {item.categoryId.length > 12 ? `${item.categoryId.substring(0, 8)}...` : item.categoryId}
                         </span>
                       )}
                     </div>
@@ -308,10 +311,14 @@ export const OrderItemsDetails: React.FC<Props> = ({ items }) => {
                       </div>
                       <p className="font-bold text-slate-800">{item.pickupAddress.name}</p>
                       <p>
-                        {item.pickupAddress.addressLine1}
-                        {item.pickupAddress.addressLine2 && `, ${item.pickupAddress.addressLine2}`}
-                        {item.pickupAddress.city && `, ${item.pickupAddress.city}`}
-                        {item.pickupAddress.state && `, ${item.pickupAddress.state}`}
+                        {[
+                          item.pickupAddress.addressLine1,
+                          item.pickupAddress.addressLine2,
+                          item.pickupAddress.city,
+                          item.pickupAddress.state,
+                        ]
+                          .filter(Boolean)
+                          .join(", ")}
                         {item.pickupAddress.postalCode && ` - ${item.pickupAddress.postalCode}`}
                       </p>
                       {item.pickupAddress.phone && (

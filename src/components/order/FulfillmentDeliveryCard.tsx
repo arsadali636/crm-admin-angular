@@ -82,21 +82,50 @@ export const FulfillmentDeliveryCard: React.FC<Props> = ({ order }) => {
         </div>
       </div>
 
-      {/* Shipping Details if present */}
-      {shippingDetails && (
-        <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 text-xs space-y-1.5">
-          <p className="font-bold text-slate-700 flex items-center gap-1">
-            <FaMapMarkerAlt size={11} className="text-indigo-500" /> Shipping Details:
-          </p>
-          {typeof shippingDetails === "string" ? (
-            <p className="text-slate-600">{shippingDetails}</p>
-          ) : (
-            <pre className="text-[10px] font-mono text-slate-600 overflow-x-auto p-2 bg-white rounded border border-slate-200">
-              {JSON.stringify(shippingDetails, null, 2)}
-            </pre>
-          )}
-        </div>
-      )}
+      {/* Shipping Details if actually present and non-empty */}
+      {(() => {
+        const hasValidShippingDetails =
+          Boolean(shippingDetails) &&
+          (typeof shippingDetails === "string"
+            ? shippingDetails.trim().length > 0
+            : Array.isArray(shippingDetails)
+            ? shippingDetails.length > 0
+            : typeof shippingDetails === "object"
+            ? Object.keys(shippingDetails).length > 0
+            : false);
+
+        if (!hasValidShippingDetails) return null;
+
+        return (
+          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 text-xs space-y-2">
+            <p className="font-bold text-slate-700 flex items-center gap-1.5">
+              <FaMapMarkerAlt size={12} className="text-indigo-500" /> Carrier & Dispatch Details:
+            </p>
+            {typeof shippingDetails === "string" ? (
+              <p className="text-slate-600 bg-white p-2.5 rounded-lg border border-slate-200">
+                {shippingDetails}
+              </p>
+            ) : Array.isArray(shippingDetails) ? (
+              <div className="space-y-1.5">
+                {shippingDetails.map((item, idx) => (
+                  <div key={idx} className="bg-white p-2 rounded-lg border border-slate-200 text-slate-700">
+                    {typeof item === "object" ? JSON.stringify(item) : String(item)}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2 bg-white p-2.5 rounded-lg border border-slate-200">
+                {Object.entries(shippingDetails).map(([key, val]) => (
+                  <div key={key}>
+                    <span className="text-[10px] text-slate-400 font-semibold uppercase">{key}:</span>
+                    <span className="font-bold text-slate-700 ml-1.5">{String(val)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* AWB Update History */}
       <div className="pt-2 border-t border-slate-100 space-y-2 text-xs">

@@ -25,13 +25,18 @@ import {
   FiPieChart,
   FiPercent,
   FiUserCheck,
-  FiRotateCcw
+  FiRotateCcw,
+  FiExternalLink,
+  FiPhone,
+  FiMail,
+  FiCheck
 } from "react-icons/fi";
 import { Button } from "../components/Button";
 import { hasPermission } from "../utils/permission";
 import { useNavigate } from "react-router-dom";
 import { ProductDeactivateModal } from "../components/ProductDeactivateModal";
 import { DealOrdersService } from "../services/DealOrdersService";
+import { UserService } from "../services/UserService";
 
 type ProductDetailProps = {
   product: any;
@@ -102,7 +107,11 @@ export const ProductDetail = ({ product, onEdit, onBack, onRefresh }: ProductDet
     rejectedBy,
     rejectedAt,
     createdAt_EP,
-    updatedAt_EP
+    updatedAt_EP,
+    sellerId: rawSellerId,
+    pickupId: rawPickupId,
+    connectorDetails,
+    productName: rawProductName
   } = product || {};
 
   // State managers
@@ -118,6 +127,180 @@ export const ProductDetail = ({ product, onEdit, onBack, onRefresh }: ProductDet
   const [isAnalyticsLoading, setIsAnalyticsLoading] = useState<boolean>(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [analyticsDateRange, setAnalyticsDateRange] = useState<string>("All Time");
+
+  // Dynamic Seller Profile state
+  const [sellerProfile, setSellerProfile] = useState<any>(null);
+  const [isSellerLoading, setIsSellerLoading] = useState<boolean>(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const handleCopy = (text: string, key: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 1800);
+  };
+
+  // Resolve Seller ID accurately from either product.sellerId or product.sellerDetails._id
+  const resolvedSellerId = useMemo(() => {
+    return rawSellerId || sellerDetails?._id || sellerDetails?.id || "";
+  }, [rawSellerId, sellerDetails]);
+
+  // Fetch complete seller profile from backend /api/profile/getAllProfiles
+  useEffect(() => {
+    if (!resolvedSellerId) {
+      setSellerProfile(null);
+      return;
+    }
+
+    let isMounted = true;
+    setIsSellerLoading(true);
+
+    UserService.getUserById(String(resolvedSellerId))
+      .then((user) => {
+        if (isMounted) {
+          setSellerProfile(user);
+        }
+      })
+      .catch((err) => {
+        console.error("ProductDetail failed to fetch seller profile:", err);
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsSellerLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [resolvedSellerId]);
+
+  // Dynamically resolve all seller data from API
+  const resolvedSeller = useMemo(() => {
+    const sDetail = sellerDetails || {};
+    const uProfile = sellerProfile || {};
+    const sObj = uProfile.seller || {};
+
+    const id = resolvedSellerId || sDetail._id || sDetail.id || uProfile._id || uProfile.id || "";
+    const firstName = sDetail.firstName || uProfile.firstName || "";
+    const lastName = sDetail.lastName || uProfile.lastName || "";
+    const personName = `${firstName} ${lastName}`.trim() || sDetail.name || uProfile.name || "";
+    const businessName = sObj.businessName || sDetail.businessName || uProfile.businessName || "";
+
+    const displayName = businessName || personName || (id ? `Seller (${String(id).substring(0, 8)})` : "Seller Not Specified");
+
+    const nameForInitials = businessName || personName || "SL";
+    const initials = nameForInitials
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w: string) => w[0]?.toUpperCase())
+      .join("") || "SL";
+
+    const email = uProfile.email || sDetail.email || "";
+    const phone = uProfile.phoneNumber || uProfile.phone || sDetail.phoneNumber || sDetail.phone || "";
+    const altPhone = uProfile.altPhone || uProfile.alternatePhone || sDetail.altPhone || sDetail.alternatePhone || "";
+
+    const gst = sObj.gstNumber || sObj.gstin || sDetail.gstNumber || sDetail.gst || product?.gstNumber || "";
+    const pan = sObj.pan || sObj.panNumber || sDetail.pan || sDetail.panNumber || "";
+    const aadhaar = sObj.aadhaarNumber || sDetail.aadhaarNumber || "";
+    const businessType = Array.isArray(sObj.typeOfBusiness)
+      ? sObj.typeOfBusiness.join(", ")
+      : (sObj.businessType || sObj.typeOfBusiness || sDetail.businessType || "");
+    const industry = sObj.industry || sObj.businessCategory || sDetail.industry || "";
+
+    const kycStatus = sObj.verificationStatus || uProfile.kycStatus || (uProfile.isKycVerified ? "verified" : undefined) || sDetail.verificationStatus;
+    const accountStatus = uProfile.status || sDetail.status || "active";
+
+    const address = sObj.address || sObj.businessAddress || uProfile.address || sDetail.address || "";
+    const city = uProfile.city || sDetail.city || "";
+    const state = uProfile.state || sDetail.state || "";
+    const pincode = uProfile.pincode || sDetail.pincode || "";
+
+    return {
+      id,
+      firstName,
+      lastName,
+      personName,
+      businessName,
+      displayName,
+      initials,
+      email,
+      phone,
+      altPhone,
+      gst,
+      pan,
+      aadhaar,
+      businessType,
+      industry,
+      kycStatus,
+      accountStatus,
+      address,
+      city,
+      state,
+      pincode,
+    };
+  }, [sellerDetails, sellerProfile, resolvedSellerId, product]);
+
+  // Dynamically resolve Pickup Address from API
+  const resolvedPickup = useMemo(() => {
+    const pAddr = pickupAddress || product.pickupAddress || {};
+    const pickupId = rawPickupId || product.pickupId || pAddr._id || pAddr.id || "";
+
+    let formattedAddress = "";
+    if (typeof pAddr === "string") {
+      formattedAddress = pAddr;
+    } else if (typeof pAddr === "object" && pAddr !== null) {
+      if (pAddr.address) {
+        formattedAddress = pAddr.address;
+      } else {
+        const parts = [
+          pAddr.address1 || pAddr.addressLine1 || pAddr.line1,
+          pAddr.address2 || pAddr.addressLine2 || pAddr.line2,
+          pAddr.landmark,
+          pAddr.city,
+          pAddr.state,
+          pAddr.postalCode || pAddr.pincode,
+        ].filter(Boolean);
+        if (parts.length > 0) {
+          formattedAddress = parts.join(", ");
+        }
+      }
+    }
+
+    const fallbackAddress = [
+      resolvedSeller.address,
+      resolvedSeller.city,
+      resolvedSeller.state,
+      resolvedSeller.pincode,
+    ].filter(Boolean).join(", ");
+
+    const contactName = pAddr.name || pAddr.contactName || (formattedAddress ? "" : resolvedSeller.personName);
+    const phone = pAddr.phone || pAddr.phoneNumber || pAddr.mobile || (formattedAddress ? "" : resolvedSeller.phone);
+
+    return {
+      pickupId,
+      formattedAddress: formattedAddress || fallbackAddress,
+      isRegisteredFallback: !formattedAddress && !!fallbackAddress,
+      contactName,
+      phone,
+    };
+  }, [pickupAddress, product, rawPickupId, resolvedSeller]);
+
+  // Dynamically resolve Connector Details from API
+  const resolvedConnector = useMemo(() => {
+    const cDetail = connectorDetails || product?.connectorDetails || {};
+    const id = connectorId || cDetail._id || cDetail.id || "";
+    const firstName = cDetail.firstName || "";
+    const lastName = cDetail.lastName || "";
+    const name = `${firstName} ${lastName}`.trim() || cDetail.name || "";
+    const code = connectorCode || cDetail.affiliateId || cDetail.code || "";
+    return {
+      id,
+      name,
+      code,
+    };
+  }, [connectorDetails, product, connectorId, connectorCode]);
 
   // Safe string primitive extraction helper for JSX rendering
   const renderTechId = (val: any) => {
@@ -341,7 +524,7 @@ export const ProductDetail = ({ product, onEdit, onBack, onRefresh }: ProductDet
           <div className="min-w-0">
             <div className="flex items-center flex-wrap gap-2.5">
               <h1 className="text-lg font-black text-slate-800 tracking-tight truncate max-w-[280px] sm:max-w-md">
-                {masterDetails?.name || product.name || "Unnamed Product"}
+                {masterDetails?.name || rawProductName || product.name || "Unnamed Product"}
               </h1>
 
               <span className={`px-2.5 py-0.5 rounded-lg text-2xs font-extrabold border capitalize tracking-wider ${
@@ -474,7 +657,7 @@ export const ProductDetail = ({ product, onEdit, onBack, onRefresh }: ProductDet
 
             <div>
               <h2 className="text-2xl font-black text-slate-800 leading-tight">
-                {masterDetails?.name || product.name || "Unnamed Marketplace Item"}
+                {masterDetails?.name || rawProductName || product.name || "Unnamed Marketplace Item"}
               </h2>
               {brand && <p className="text-sm font-semibold text-slate-400 mt-1">by <span className="text-slate-600">{brand}</span></p>}
             </div>
@@ -657,7 +840,7 @@ export const ProductDetail = ({ product, onEdit, onBack, onRefresh }: ProductDet
               <p className={`text-xs text-slate-500 leading-relaxed transition-all ${
                 isDescExpanded ? "" : "line-clamp-4"
               }`}>
-                {description || masterDetails?.description || "Hi this is indian plum"}
+                {description || masterDetails?.description || "No description provided."}
               </p>
 
               <div className="pt-2">
@@ -759,24 +942,26 @@ export const ProductDetail = ({ product, onEdit, onBack, onRefresh }: ProductDet
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
               <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-100">
                 <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block mb-0.5">Manufacturing Date</span>
-                <span className="font-bold text-slate-700">{formatDate(mfg || "2024-07-24")}</span>
+                <span className="font-bold text-slate-700">{formatDate(mfg)}</span>
               </div>
 
               <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-100">
                 <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block mb-0.5">Expiry Date</span>
-                <span className="font-bold text-slate-700">{formatDate(expiry || "2030-07-24")}</span>
+                <span className="font-bold text-slate-700">{formatDate(expiry)}</span>
               </div>
 
               <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-100">
                 <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block mb-0.5">Expiry Proof</span>
-                <span className="font-bold text-emerald-600">
-                  {expiryDateProofMedia || expiryProofMedia ? "Available" : "Available"}
+                <span className={`font-bold ${expiryDateProofMedia || expiryProofMedia ? "text-emerald-600" : "text-slate-400"}`}>
+                  {expiryDateProofMedia || expiryProofMedia ? "Available" : "Not Provided"}
                 </span>
               </div>
 
               <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-100">
                 <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block mb-0.5">Verification Status</span>
-                <span className="font-bold text-slate-500">Not Available</span>
+                <span className="font-bold text-slate-600">
+                  {product?.verificationStatus || (status === "active" ? "Verified" : "Pending")}
+                </span>
               </div>
             </div>
 
@@ -840,22 +1025,22 @@ export const ProductDetail = ({ product, onEdit, onBack, onRefresh }: ProductDet
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs">
               <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100">
                 <span className="text-[9px] font-extrabold uppercase text-slate-400 block mb-0.5">Name</span>
-                <span className="font-bold text-slate-800">{masterDetails?.name || product.name || "Indian Plum"}</span>
+                <span className="font-bold text-slate-800">{masterDetails?.name || rawProductName || product.name || "—"}</span>
               </div>
 
               <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100">
                 <span className="text-[9px] font-extrabold uppercase text-slate-400 block mb-0.5">SKU</span>
-                <span className="font-mono font-bold text-slate-800">{masterDetails?.skuCode || product.skuCode || "plum-001"}</span>
+                <span className="font-mono font-bold text-slate-800">{masterDetails?.skuCode || product.skuCode || "—"}</span>
               </div>
 
               <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100">
                 <span className="text-[9px] font-extrabold uppercase text-slate-400 block mb-0.5">MRP</span>
-                <span className="font-bold text-slate-800">{formatCurrency(masterDetails?.mrp || mrp || 100)}</span>
+                <span className="font-bold text-slate-800">{formatCurrency(masterDetails?.mrp || mrp)}</span>
               </div>
 
               <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100">
                 <span className="text-[9px] font-extrabold uppercase text-slate-400 block mb-0.5">Size</span>
-                <span className="font-bold text-slate-800">{masterDetails?.size || product.size || "250 - gm"}</span>
+                <span className="font-bold text-slate-800">{masterDetails?.size || product.size || (product.unit ? `${product.unit}` : "—")}</span>
               </div>
 
               <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100">
@@ -865,13 +1050,13 @@ export const ProductDetail = ({ product, onEdit, onBack, onRefresh }: ProductDet
 
               <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100">
                 <span className="text-[9px] font-extrabold uppercase text-slate-400 block mb-0.5">Category</span>
-                <span className="font-bold text-slate-800">{product.categoryDetails?.name || "Grocery & Kitchen"}</span>
+                <span className="font-bold text-slate-800">{product.categoryDetails?.name || "Uncategorized"}</span>
               </div>
             </div>
 
             <div className="pt-2 text-xs text-slate-500">
               <span className="text-[9px] font-extrabold uppercase text-slate-400 block mb-1">Description</span>
-              <p className="bg-slate-50 p-3 rounded-xl border border-slate-100">{masterDetails?.description || description || "Hi this is indian plum"}</p>
+              <p className="bg-slate-50 p-3 rounded-xl border border-slate-100">{masterDetails?.description || description || "No description available."}</p>
             </div>
           </div>
         </div>
@@ -879,65 +1064,269 @@ export const ProductDetail = ({ product, onEdit, onBack, onRefresh }: ProductDet
         {/* Right Columns */}
         <div className="lg:col-span-4 space-y-6">
           
-          {/* ── 9. SELLER UI CARD (Requirement 17) ── */}
+          {/* ── 9. SELLER UI CARD (Dynamic & Complete Seller Information) ── */}
           <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-50">
-              <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
-                <FiStar className="text-blue-500" />
-                Seller / Merchant
-              </h3>
-              
+            <div className="flex items-center justify-between pb-3 border-b border-slate-50 gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <FiStar className="text-blue-500 shrink-0" />
+                <h3 className="text-sm font-black text-slate-800 truncate">
+                  Seller / Merchant
+                </h3>
+                {resolvedSeller.kycStatus && (
+                  <span
+                    className={`px-2 py-0.5 rounded-md text-3xs font-extrabold uppercase tracking-wider shrink-0 border ${
+                      resolvedSeller.kycStatus === "verified"
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                        : "bg-amber-50 text-amber-700 border-amber-200"
+                    }`}
+                  >
+                    KYC {resolvedSeller.kycStatus}
+                  </span>
+                )}
+              </div>
+
               <button
-                onClick={() => navigate("/users")}
-                className="px-2.5 py-1 bg-blue-50 text-blue-600 rounded-lg text-3xs font-bold transition cursor-pointer hover:bg-blue-100"
+                onClick={() => {
+                  if (resolvedSeller.id) {
+                    navigate(`/users?userId=${encodeURIComponent(resolvedSeller.id)}`);
+                  } else {
+                    navigate("/users");
+                  }
+                }}
+                className="px-2.5 py-1 bg-blue-50 text-blue-600 rounded-lg text-3xs font-bold transition cursor-pointer hover:bg-blue-100 flex items-center gap-1 shrink-0"
+                title="View full user profile in CRM"
               >
-                View Seller Profile
+                <span>View Profile</span>
+                <FiExternalLink size={10} />
               </button>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center font-black text-base">
-                {sellerDetails?.businessName ? sellerDetails.businessName.substring(0, 2).toUpperCase() : "GS"}
+            {/* Seller Identity Row */}
+            <div className="flex items-start gap-3">
+              <div className="h-11 w-11 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center font-black text-sm shadow-xs shrink-0 select-none">
+                {resolvedSeller.initials}
               </div>
-              
-              <div className="min-w-0">
-                <h4 className="text-xs font-bold text-slate-800 truncate">
-                  {sellerDetails?.businessName || sellerDetails?.name || "Gattamafia seller"}
-                </h4>
-                <p className="text-3xs text-slate-400 font-mono mt-0.5 truncate">
-                  ID: {renderTechId(sellerDetails?._id || sellerDetails?.id || "6a7cb04577d7182b4af4c2b6")}
-                </p>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="text-xs font-black text-slate-900 truncate" title={resolvedSeller.displayName}>
+                    {resolvedSeller.displayName}
+                  </h4>
+                  {resolvedSeller.accountStatus && (
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-600 capitalize">
+                      {resolvedSeller.accountStatus}
+                    </span>
+                  )}
+                  {isSellerLoading && (
+                    <span className="text-[9px] text-slate-400 italic">updating...</span>
+                  )}
+                </div>
+
+                {resolvedSeller.businessName && resolvedSeller.personName && resolvedSeller.businessName !== resolvedSeller.personName && (
+                  <p className="text-3xs font-medium text-slate-500 truncate mt-0.5">
+                    Contact Person: <span className="text-slate-700 font-semibold">{resolvedSeller.personName}</span>
+                  </p>
+                )}
+
+                <div className="flex items-center gap-1.5 mt-1">
+                  <p className="text-3xs text-slate-400 font-mono truncate">
+                    ID: {renderTechId(resolvedSeller.id)}
+                  </p>
+                  {resolvedSeller.id && (
+                    <button
+                      onClick={() => handleCopy(String(resolvedSeller.id), "sellerId")}
+                      className="text-slate-400 hover:text-blue-600 transition p-0.5 cursor-pointer"
+                      title="Copy Seller ID"
+                    >
+                      {copiedKey === "sellerId" ? <FiCheck className="text-emerald-500" size={10} /> : <FiCopy size={10} />}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="space-y-2.5 pt-3 border-t border-slate-50 text-2xs">
-              <div className="flex justify-between items-center">
-                <span className="font-semibold text-slate-400">Phone</span>
-                <span className="font-bold text-slate-700">{sellerDetails?.phone || "8585852525"}</span>
+            {/* Seller Contact & Business Information */}
+            <div className="space-y-2 pt-3 border-t border-slate-50 text-2xs">
+              {/* Phone */}
+              <div className="flex justify-between items-center py-0.5">
+                <span className="font-semibold text-slate-400 flex items-center gap-1.5">
+                  <FiPhone size={11} className="text-slate-400" /> Phone
+                </span>
+                <div className="flex items-center gap-1 font-bold text-slate-700">
+                  {resolvedSeller.phone ? (
+                    <>
+                      <a href={`tel:${resolvedSeller.phone}`} className="hover:text-blue-600 font-mono">
+                        {resolvedSeller.phone}
+                      </a>
+                      <button
+                        onClick={() => handleCopy(resolvedSeller.phone, "phone")}
+                        className="text-slate-400 hover:text-blue-600 transition p-0.5 cursor-pointer"
+                        title="Copy Phone"
+                      >
+                        {copiedKey === "phone" ? <FiCheck className="text-emerald-500" size={10} /> : <FiCopy size={10} />}
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-slate-400 font-normal">—</span>
+                  )}
+                </div>
               </div>
 
-              <div className="flex justify-between items-center">
-                <span className="font-semibold text-slate-400">Alternate</span>
-                <span className="font-bold text-slate-700">{sellerDetails?.alternatePhone || "8686863225"}</span>
-              </div>
+              {/* Alternate Phone */}
+              {resolvedSeller.altPhone && (
+                <div className="flex justify-between items-center py-0.5">
+                  <span className="font-semibold text-slate-400">Alternate Phone</span>
+                  <div className="flex items-center gap-1 font-bold text-slate-700">
+                    <span className="font-mono">{resolvedSeller.altPhone}</span>
+                    <button
+                      onClick={() => handleCopy(resolvedSeller.altPhone, "altPhone")}
+                      className="text-slate-400 hover:text-blue-600 transition p-0.5 cursor-pointer"
+                      title="Copy Alternate Phone"
+                    >
+                      {copiedKey === "altPhone" ? <FiCheck className="text-emerald-500" size={10} /> : <FiCopy size={10} />}
+                    </button>
+                  </div>
+                </div>
+              )}
 
-              <div className="pt-2 border-t border-slate-50 flex items-start gap-1">
-                <FiMapPin className="text-slate-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <span className="font-semibold text-slate-400 block mb-0.5">Pickup Location</span>
-                  <span className="font-semibold text-slate-600 block leading-normal">
-                    {pickupAddress?.address || sellerDetails?.address || "Gatta seller, Lucknow, Uttar Pradesh 226003"}
+              {/* Email */}
+              {resolvedSeller.email && (
+                <div className="flex justify-between items-center py-0.5">
+                  <span className="font-semibold text-slate-400 flex items-center gap-1.5">
+                    <FiMail size={11} className="text-slate-400" /> Email
+                  </span>
+                  <div className="flex items-center gap-1 font-bold text-slate-700 truncate max-w-[200px]">
+                    <a href={`mailto:${resolvedSeller.email}`} className="hover:text-blue-600 truncate" title={resolvedSeller.email}>
+                      {resolvedSeller.email}
+                    </a>
+                    <button
+                      onClick={() => handleCopy(resolvedSeller.email, "email")}
+                      className="text-slate-400 hover:text-blue-600 transition p-0.5 cursor-pointer shrink-0"
+                      title="Copy Email"
+                    >
+                      {copiedKey === "email" ? <FiCheck className="text-emerald-500" size={10} /> : <FiCopy size={10} />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* GST Number */}
+              {resolvedSeller.gst && (
+                <div className="flex justify-between items-center py-0.5">
+                  <span className="font-semibold text-slate-400">GSTIN</span>
+                  <div className="flex items-center gap-1 font-mono font-bold text-slate-700">
+                    <span>{resolvedSeller.gst}</span>
+                    <button
+                      onClick={() => handleCopy(resolvedSeller.gst, "gst")}
+                      className="text-slate-400 hover:text-blue-600 transition p-0.5 cursor-pointer"
+                      title="Copy GSTIN"
+                    >
+                      {copiedKey === "gst" ? <FiCheck className="text-emerald-500" size={10} /> : <FiCopy size={10} />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* PAN Number */}
+              {resolvedSeller.pan && (
+                <div className="flex justify-between items-center py-0.5">
+                  <span className="font-semibold text-slate-400">PAN</span>
+                  <div className="flex items-center gap-1 font-mono font-bold text-slate-700">
+                    <span>{resolvedSeller.pan}</span>
+                    <button
+                      onClick={() => handleCopy(resolvedSeller.pan, "pan")}
+                      className="text-slate-400 hover:text-blue-600 transition p-0.5 cursor-pointer"
+                      title="Copy PAN"
+                    >
+                      {copiedKey === "pan" ? <FiCheck className="text-emerald-500" size={10} /> : <FiCopy size={10} />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Business Type / Industry */}
+              {(resolvedSeller.businessType || resolvedSeller.industry) && (
+                <div className="flex justify-between items-center py-0.5">
+                  <span className="font-semibold text-slate-400">Business Type</span>
+                  <span className="font-bold text-slate-700 text-right capitalize">
+                    {[resolvedSeller.businessType, resolvedSeller.industry].filter(Boolean).join(" • ")}
                   </span>
                 </div>
+              )}
+
+              {/* Pickup / Dispatch Location Snapshot */}
+              <div className="pt-2.5 mt-2 border-t border-slate-100 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-[10px] uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                    <FiMapPin className="text-blue-500" />
+                    Pickup & Dispatch Location
+                  </span>
+                  {resolvedPickup.isRegisteredFallback && (
+                    <span className="text-[9px] text-slate-400 font-semibold bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                      Seller Address
+                    </span>
+                  )}
+                </div>
+
+                {resolvedPickup.formattedAddress ? (
+                  <div className="bg-slate-50/70 p-2.5 rounded-xl border border-slate-100 space-y-1">
+                    {resolvedPickup.contactName && (
+                      <p className="text-[10px] font-bold text-slate-800">
+                        Contact: {resolvedPickup.contactName}
+                        {resolvedPickup.phone ? ` • ${resolvedPickup.phone}` : ""}
+                      </p>
+                    )}
+                    <div className="flex items-start justify-between gap-1">
+                      <p className="font-semibold text-slate-700 leading-relaxed text-2xs">
+                        {resolvedPickup.formattedAddress}
+                      </p>
+                      <button
+                        onClick={() => handleCopy(resolvedPickup.formattedAddress, "pickupAddress")}
+                        className="text-slate-400 hover:text-blue-600 transition p-0.5 cursor-pointer shrink-0 mt-0.5"
+                        title="Copy Pickup Address"
+                      >
+                        {copiedKey === "pickupAddress" ? <FiCheck className="text-emerald-500" size={10} /> : <FiCopy size={10} />}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-slate-400 text-3xs italic">
+                    Pickup location address not specified on this listing.
+                  </p>
+                )}
+
+                {resolvedPickup.pickupId && (
+                  <div className="flex items-center justify-between pt-1 text-3xs text-slate-400 font-mono">
+                    <span>Pickup ID: {renderTechId(resolvedPickup.pickupId)}</span>
+                    <button
+                      onClick={() => handleCopy(String(resolvedPickup.pickupId), "pickupId")}
+                      className="text-slate-400 hover:text-blue-600 transition p-0.5 cursor-pointer"
+                      title="Copy Pickup ID"
+                    >
+                      {copiedKey === "pickupId" ? <FiCheck className="text-emerald-500" size={10} /> : <FiCopy size={10} />}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
           {/* ── 10. PRODUCT SOURCE CARD (Requirement 18) ── */}
           <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-3 text-2xs">
-            <h3 className="text-sm font-black text-slate-800 pb-2 border-b border-slate-50">
-              Listing Source
-            </h3>
+            <div className="flex items-center justify-between pb-2 border-b border-slate-50">
+              <h3 className="text-sm font-black text-slate-800">
+                Listing Source
+              </h3>
+              {isCreatedByPromoter ? (
+                <span className="px-2 py-0.5 rounded-md text-3xs font-extrabold uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200">
+                  Via Promoter
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-md text-3xs font-extrabold uppercase tracking-wider bg-slate-100 text-slate-600">
+                  Standard / Direct
+                </span>
+              )}
+            </div>
 
             <div className="flex justify-between items-center">
               <span className="font-semibold text-slate-400">Created By Promoter</span>
@@ -951,13 +1340,53 @@ export const ProductDetail = ({ product, onEdit, onBack, onRefresh }: ProductDet
 
             <div className="flex justify-between items-center">
               <span className="font-semibold text-slate-400">Connector</span>
-              <span className="font-bold text-slate-700">{renderTechId(connectorId) !== "—" ? renderTechId(connectorId) : "Not Linked"}</span>
+              <div className="font-bold text-slate-700 text-right">
+                {resolvedConnector.name ? (
+                  <div>
+                    <span>{resolvedConnector.name}</span>
+                    {resolvedConnector.id && (
+                      <span className="text-[10px] text-slate-400 block font-mono">
+                        ID: {renderTechId(resolvedConnector.id)}
+                      </span>
+                    )}
+                  </div>
+                ) : renderTechId(resolvedConnector.id) !== "—" ? (
+                  renderTechId(resolvedConnector.id)
+                ) : (
+                  <span className="text-slate-400 font-normal">Not Linked</span>
+                )}
+              </div>
             </div>
 
             <div className="flex justify-between items-center">
               <span className="font-semibold text-slate-400">Connector Code</span>
-              <span className="font-mono font-bold text-slate-700">{renderTechId(connectorCode)}</span>
+              <span className="font-mono font-bold text-slate-700">
+                {resolvedConnector.code || renderTechId(connectorCode)}
+              </span>
             </div>
+
+            {(promotionFee !== undefined || connectorCommission !== undefined || promoterCommission !== undefined) && (
+              <div className="pt-2 border-t border-slate-50 grid grid-cols-3 gap-2 text-center text-3xs">
+                {promotionFee !== undefined && (
+                  <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+                    <span className="text-slate-400 block uppercase font-bold text-[8px]">Promo Fee</span>
+                    <span className="font-bold text-slate-700">{promotionFee}%</span>
+                  </div>
+                )}
+                {connectorCommission !== undefined && (
+                  <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+                    <span className="text-slate-400 block uppercase font-bold text-[8px]">Connector</span>
+                    <span className="font-bold text-slate-700">{connectorCommission}%</span>
+                  </div>
+                )}
+                {promoterCommission !== undefined && (
+                  <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+                    <span className="text-slate-400 block uppercase font-bold text-[8px]">Promoter</span>
+                    <span className="font-bold text-slate-700">{promoterCommission}%</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* ── 11. DOCUMENTS VAULT (Requirement 27) ── */}
@@ -1049,7 +1478,7 @@ export const ProductDetail = ({ product, onEdit, onBack, onRefresh }: ProductDet
                       <div className="min-w-0 flex-1 pt-1 flex justify-between gap-2">
                         <div>
                           <p className="font-bold text-slate-800">Approved</p>
-                          <p className="text-[10px] text-slate-400">By: {renderTechId(approvedBy || "68d9005ae8d953aa980e18ee")}</p>
+                          <p className="text-[10px] text-slate-400">By: {approvedBy ? renderTechId(approvedBy) : "System"}</p>
                         </div>
                         <span className="text-[9px] font-semibold text-slate-400">{formatDate(approvedAt || createdAt)}</span>
                       </div>
